@@ -3,6 +3,8 @@ name = "final-state-rs"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+description = "Final State Compression in Rust"
+keywords = ["fse", "encryption", "compression"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
