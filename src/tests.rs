@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use crate::fse16::build_cumulative_symbol_frequency;
-
 #[test]
 fn build_ecoding_table() {
     let mut hist = vec![24, 20, 49, 18];
@@ -29,34 +27,6 @@ fn build_ecoding_table() {
 
     assert_eq!(src, decoded);
     println!("{:?}", decoded);
-}
-#[ignore = "wip"]
-#[test]
-fn try_to_break_norm() {
-    let alphabet_size = 100;
-    let mut alphabet = vec![];
-    let mut symbol_index = HashMap::new();
-    for i in 0..alphabet_size {
-        let symbol = rand::random::<u16>();
-        alphabet.push(symbol);
-        symbol_index.insert(symbol, i);
-    }
-
-    let mut src = vec![];
-    let mut hist = vec![1; alphabet_size as usize];
-    for _ in 0..100 {
-        let symbol_index = rand::random::<usize>() % alphabet_size;
-        src.push(*alphabet.get(symbol_index).unwrap());
-        hist[symbol_index as usize] += 1;
-    }
-    let mut cs = build_cumulative_symbol_frequency(&hist);
-    let table_log = 7;
-    println!("{:?}", hist);
-    println!("{:?}", cs);
-    crate::fse16::simple_normalization(&mut hist, &mut cs, table_log);
-    println!("{:?}", hist);
-    println!("{:?}", cs);
-    assert_eq!(hist.iter().sum::<usize>(), 1 << table_log)
 }
 
 #[test]
@@ -129,12 +99,13 @@ fn fuzzingly_u8() {
 
     let mut src = vec![];
     let mut hist = vec![1; 256];
-    for _ in 0..100 {
+    for _ in 0..1000 {
         let symbol = rand::random::<u8>();
         src.push(symbol);
         hist[symbol as usize] += 1;
     }
     let src_size = src.len() * 16;
+    println!("hist: {:?}", hist);
     let r = crate::fse16::encode_u8(&mut hist, table_log, &src);
     println!("starting state {}", r.0);
 
@@ -152,14 +123,61 @@ fn fuzzingly_u8() {
 }
 
 #[test]
-fn simple_normalization() {
+fn test_derivative_normalization() {
+    use crate::normalization::derivative_normalization;
+
     let mut hist = vec![2, 3, 6, 2];
-    let mut cs = build_cumulative_symbol_frequency(&hist);
-    let table_log = 4; // should pass with 3 after
-    println!("{:?}", hist);
-    println!("{:?}", cs);
-    crate::fse16::simple_normalization(&mut hist, &mut cs, table_log);
-    println!("{:?}", hist);
-    println!("{:?}", cs);
+    let table_log = 4;
+    let cs = derivative_normalization(&mut hist, table_log);
+    println!("{:?}, {:?}", hist, cs);
     assert_eq!(hist.iter().sum::<usize>(), 1 << table_log)
+}
+
+#[test]
+fn test_fast_normalization_1() {
+    use crate::normalization::fast_normalization_1;
+
+    let hist = vec![2, 3, 6, 2];
+    let table_log = 4;
+    let normalized = fast_normalization_1(&hist, table_log).expect("expect to succeed");
+    println!("{:?}", normalized);
+    assert_eq!(normalized.iter().sum::<usize>(), 1 << table_log)
+}
+
+#[test]
+fn test_fast_normalization_1_inplace() {
+    use crate::normalization::{fast_normalization_1, zstd_normalization_1_inplace};
+
+    let mut hist = vec![2, 3, 6, 2];
+    let table_log = 4;
+    let normalized = fast_normalization_1(&hist, table_log).expect("expect to succeed");
+    println!("{:?}", normalized);
+    zstd_normalization_1_inplace(&mut hist, table_log).expect("expect to succeed");
+    assert_eq!(normalized, hist)
+}
+
+#[test]
+fn test_slow_normalization() {
+    use crate::normalization::slow_normalization;
+
+    let hist = vec![2, 3, 6, 2];
+    let table_log = 4;
+    let normalized = slow_normalization(&hist, table_log).expect("expect to succeed");
+    println!("{:?}", normalized);
+    assert_eq!(normalized.iter().sum::<usize>(), 1 << table_log)
+}
+
+#[test]
+fn test_slow_normalization_vs_fast() {
+    use crate::normalization::fast_normalization_1;
+    use crate::normalization::slow_normalization;
+
+    let mut hist = vec![1; 256];
+    for _ in 0..5000 {
+        hist[rand::random::<u8>() as usize] += 1;
+    }
+    let table_log = 4;
+    let normalized = slow_normalization(&hist, table_log).expect("expect to succeed");
+    let normalized2 = fast_normalization_1(&hist, table_log).expect("expect to succeed");
+    assert_eq!(normalized, normalized2)
 }

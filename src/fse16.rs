@@ -1,26 +1,7 @@
 use std::{collections::HashMap, convert::TryInto};
 use tiny_bitstream::{BitDstream, BitEstream, BitReader, BitWriter};
 
-/// Build cs = f0 + f1 + ... + fs-1
-///
-/// # normalized_counter
-///
-/// Table that counts the number of symbols and normalized as well as the sum
-/// of frequency is 2^R. Where R is named `table_log` in that code.
-///
-/// normalized_counter[symbol_index] = symbol frequency
-/// normalized_counter.len() = number of symbols
-pub fn build_cumulative_symbol_frequency(normalized_counter: &[usize]) -> Vec<usize> {
-    let mut cs = Vec::with_capacity(normalized_counter.len() + 1);
-
-    let cumul_fn = |acc, frequency| {
-        cs.push(acc);
-        acc + frequency
-    };
-    let sum = normalized_counter.iter().fold(0, cumul_fn);
-    cs.push(sum);
-    cs
-}
+use crate::normalization::{build_cumulative_function, derivative_normalization};
 
 pub fn compress(state: usize, table_log: usize, frequency: usize, cumul: usize) -> usize {
     #[cfg(feature = "checks")]
@@ -37,39 +18,6 @@ pub fn compress(state: usize, table_log: usize, frequency: usize, cumul: usize) 
     ((state / frequency) << table_log) + (state % frequency) + cumul
 }
 
-pub fn simple_normalization(histogram: &mut [usize], cumul: &mut [usize], table_log: usize) {
-    // linear interpolation naïve sur une fonction de cumulation
-    let mut previous = 0;
-    let max_cumul = *cumul.last().unwrap();
-    let target_range = 1 << table_log; // D - C
-    let actual_range = max_cumul; // B - A
-
-    cumul.iter_mut().enumerate().skip(1).for_each(|(i, c)| {
-        *c = (target_range * (*c)) / actual_range;
-        if *c <= previous {
-            panic!("table log too low");
-            // todo: we expect to never force value actually...
-            // we need to increase table_log instead
-
-            // note: we could force to previous + 1 and accumulate a dept that
-            //       we substract to the nexts values. If at the end we keep
-            //       a dept > 0 we should panic. If not just inform user that
-            //       we got to force the normalized counter to fit.
-
-            // D'autres idées:
-            // 1. Correction à posteriorie, si j'ai une dette, après avoir
-            // calculé ma cdf je verifie si je peut pas supprimer quelques
-            // truc pour forcer a faire entrer dans mon table_log.
-            // 2. Panic je double
-            // 3. Lorsque je tombe sur un pépin, j'invertie les deux dernières
-            // valeurs.
-        }
-
-        histogram[i - 1] = *c - previous;
-        previous = *c;
-    });
-}
-
 /// Meme chose que encode_u8 mais avec un tbleau de u16 comme source. Generalement
 /// l'histogramme est plus coûteux à réaliser sur cette taille là.
 pub fn encode(
@@ -78,9 +26,7 @@ pub fn encode(
     table_log: usize, // R
     src: &[u16],
 ) -> (usize, Vec<u32>, Vec<u8>) {
-    let mut cs = build_cumulative_symbol_frequency(hist);
-
-    simple_normalization(hist, &mut cs, table_log);
+    let cs = derivative_normalization(hist, table_log).unwrap();
 
     let mut state = 0;
 
@@ -114,9 +60,7 @@ pub fn encode_u8(
     table_log: usize, // R
     src: &[u8],
 ) -> (usize, Vec<u32>, Vec<u8>) {
-    let mut cs = build_cumulative_symbol_frequency(hist);
-
-    simple_normalization(hist, &mut cs, table_log);
+    let cs = derivative_normalization(hist, table_log).unwrap();
 
     let mut state = 0;
 
@@ -199,7 +143,7 @@ pub fn decode(
     let mut dstream: BitDstream = str.try_into().unwrap();
     dstream.read(1).unwrap(); // read mark
 
-    let cs = build_cumulative_symbol_frequency(normalized_counter);
+    let cs = build_cumulative_function(normalized_counter);
     let mut ret = vec![];
     while state > 0 {
         //println!("reverse state {state}");
@@ -236,10 +180,9 @@ pub fn decode_u8(
     let mut dstream: BitDstream = str.try_into().unwrap();
     dstream.read(1).unwrap(); // read mark
 
-    let cs = build_cumulative_symbol_frequency(normalized_counter);
+    let cs = build_cumulative_function(normalized_counter);
     let mut ret = vec![];
     while state > 0 {
-        //println!("reverse state {state}");
         // todo add a security timing to auto kill loop
         let symbol_index = find_s(state & mask, &cs);
         ret.push(symbol_index.try_into().expect("symbol overflow"));
