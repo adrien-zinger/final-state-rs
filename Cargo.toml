@@ -5,6 +5,7 @@ edition = "2021"
 license = "MIT"
 description = "Final State Compression in Rust"
 keywords = ["fse", "encryption", "compression"]
+authors = ["Adrien Zinger <zinger.ad@gmail.com>"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

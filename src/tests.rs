@@ -134,6 +134,22 @@ fn test_derivative_normalization() {
 }
 
 #[test]
+fn test_derivative_normalization_slow_vs_fast() {
+    use crate::normalization::derivative_normalization;
+    use crate::normalization::derivative_normalization_fast;
+
+    let mut hist = vec![2, 3, 6, 2];
+    let mut hist2 = vec![2, 3, 6, 2];
+    let table_log = 4;
+    // Ce test passe mais hélas est fortuit, les arrondis dans la méthode
+    // rapide peuvent amener à avoir une somme total < 2^table_log et le
+    // problème est palier en ajoutant au dernier élément le reste.
+    derivative_normalization(&mut hist, table_log).unwrap();
+    derivative_normalization_fast(&mut hist2, table_log).unwrap();
+    assert_eq!(hist, hist2)
+}
+
+#[test]
 fn test_fast_normalization_1() {
     use crate::normalization::fast_normalization_1;
 

@@ -12,6 +12,15 @@ fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("fast normalization", |b| {
         b.iter(|| fast_normalization_1(&hist, 10))
     });
+
+    let mut hist1 = hist.clone();
+    let mut hist2 = hist.clone();
+    c.bench_function("slow derivative normalization", |b| {
+        b.iter(|| derivative_normalization(&mut hist1, 10))
+    });
+    c.bench_function("fast derivative normalization", |b| {
+        b.iter(|| derivative_normalization_fast(&mut hist2, 10))
+    });
 }
 
 criterion_group!(benches, criterion_benchmark);

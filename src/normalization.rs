@@ -1,3 +1,11 @@
+//! Ce fichier contient multiple implémentation de normalisation. Il est
+//! utilisé par la bibliothèque en interne, bien qu'acessible en soit par
+//! un utilisateur externe.
+//!
+//! Implémentation de final-state-rs, tenter d'implémenter FSE en Rust.
+//! Author: Adrien Zinger, avec l'inspiration du travail de Jarek Duda,
+//!         Yann Collet, Charles Bloom et bien d'autres.
+
 #[derive(Debug)]
 pub enum NormError {
     RunLengthEncoding(&'static str),
@@ -72,7 +80,7 @@ pub fn fast_normalization_1(
 /// Même fonction que `fast_normalisation_1` à l'exception qu'on n'augmente pas
 /// artificiellement les variables avec une grande valeur. Le fait de
 /// travailler avec des nombres rationnels ralentit énormément le calcul.
-/// (cargo est pour voir les différences)
+/// (utiliser la commande `cargo test` pour voir les différences)
 pub fn slow_normalization(hist: &[usize], table_log: usize) -> Result<Vec<usize>, Box<NormError>> {
     let mut norm = vec![0usize; hist.len()];
     let step = (1usize << table_log) as isize / hist.iter().sum::<usize>() as isize;
@@ -155,8 +163,9 @@ pub fn build_cumulative_function(hist: &[usize]) -> Vec<usize> {
 ///
 /// On pourrait surement améliorer cette méthode en la rendant plus robuste.
 /// Par exemple on pourrait tenter de normaliser avec une table log < total de
-/// l'histogramme. Mais cette méthode reste très lente et je ne peux pas
-/// affirmer qu'elle soit performante pour la compression.
+/// l'histogramme. Mais cette méthode reste un peu plus lente que l'original,
+/// de plus je ne peux pas affirmer qu'elle soit performante pour la
+/// compression. À tester.
 ///
 /// # Return
 /// The cumulative function in a Ok, or a normalization error in an Err.
@@ -196,5 +205,39 @@ pub fn derivative_normalization(
         histogram[i - 1] = *c - previous;
         previous = *c;
     });
+    Ok(cumul)
+}
+
+/// Pareil en somme à la normalisation dérivative. Excepté qu'on augmente le
+/// numérateur avec un nombre important (2^62 ou 2^30 selon l'architecture).
+/// Cette méthode peut ne pas être adapté avec des fréquence d'aparitions trop
+/// grandes.
+pub fn derivative_normalization_fast(
+    histogram: &mut [usize],
+    table_log: usize,
+) -> Result<Vec<usize>, NormError> {
+    let mut previous = 0;
+    let mut cumul = build_cumulative_function(histogram);
+    let max_cumul = *cumul.last().unwrap();
+    const HIGH_NUM: usize = usize::BITS as usize - 2;
+    let scale: usize = HIGH_NUM - table_log;
+    let step = (1 << HIGH_NUM) / max_cumul;
+    let mut still_to_distribute = 1 << table_log;
+    for (i, c) in cumul.iter_mut().enumerate().skip(1) {
+        *c = (*c)
+            .checked_mul(step)
+            .ok_or(NormError::MultiplicationOverflow)?
+            >> scale;
+        if *c <= previous {
+            panic!("table log too low");
+        }
+        histogram[i - 1] = *c - previous;
+        still_to_distribute -= histogram[i - 1];
+        previous = *c;
+    }
+    if still_to_distribute > 0 {
+        *cumul.last_mut().unwrap() += still_to_distribute;
+        *histogram.last_mut().unwrap() += still_to_distribute;
+    }
     Ok(cumul)
 }
