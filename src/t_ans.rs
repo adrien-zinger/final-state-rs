@@ -1,3 +1,10 @@
+//! Ce fichier contient une implémentation en Rust de l'algorithme tANS
+//! poussé en particulier par Jarek Duda et Yann Collet.
+//!
+//! Implémentation de final-state-rs, tenter d'implémenter FSE en Rust.
+//! Author: Adrien Zinger, avec l'inspiration du travail de Jarek Duda,
+//!         Yann Collet, Charles Bloom et bien d'autres.
+
 use tiny_bitstream::{BitDstream, BitEstream, BitReader, BitWriter};
 
 use crate::{
@@ -52,11 +59,10 @@ pub fn build_encode_table(
         }
     }
 
-    let l = 1 << table_log;
-    let mut table = vec![0; l + 2];
+    let mut table = vec![0; table_size + 2];
     let mut nexts = hist.to_vec();
-    for x in l..2 * l {
-        let s = spread[x - l] as usize;
+    for x in table_size..2 * table_size {
+        let s = spread[x - table_size] as usize;
         table[(starts[s] + nexts[s] as i32) as usize] = x;
         nexts[s] += 1;
     }

@@ -1,7 +1,9 @@
 use std::{collections::HashMap, convert::TryInto};
 use tiny_bitstream::{BitDstream, BitEstream, BitReader, BitWriter};
 
-use crate::normalization::{build_cumulative_function, derivative_normalization};
+use crate::normalization::{
+    build_cumulative_function, derivative_normalization, fast_normalization_1,
+};
 
 pub fn compress(state: usize, table_log: usize, frequency: usize, cumul: usize) -> usize {
     // add some natural checks behind a compilation feature; in some case that test
@@ -63,7 +65,7 @@ pub fn encode_u8(
     table_log: usize, // R
     src: &[u8],
 ) -> (usize, Vec<u32>, Vec<u8>) {
-    let cs = derivative_normalization(hist, table_log).unwrap();
+    let cs = fast_normalization_1(hist, table_log).unwrap();
 
     let mut state = 0;
 

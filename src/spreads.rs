@@ -1,4 +1,4 @@
-//! Ce fichier contient l'implémentation de multiple fonction de diffusion
+//! Ce fichier contient l'implémentation de multiples fonctions de diffusion
 //! utilisées pour la création d'une table de translation dans la version
 //! de l'algorithme tANS, poussée par Yann Collet et Jarek Duda.
 //!
@@ -46,7 +46,7 @@ pub fn fse_spread_sorted(sorted_hist: &[usize], table_log: usize) -> Vec<u8> {
     ret
 }
 
-///
+/// Identique à fse_spread_sorted en tout point.
 /// nextState = (currentState + (5/8) range + 3) % range
 pub fn fast_compression_spread_sorted(sorted_hist: &[usize], table_log: usize) -> Vec<u8> {
     let range = 1 << table_log;
@@ -61,7 +61,7 @@ pub fn fast_compression_spread_sorted(sorted_hist: &[usize], table_log: usize) -
         for _ in 0..count {
             ret[pos] = i as u8;
             // Il n'y a pas de différence de performance notable
-            // entre un % et un mask en Rust
+            // entre un % et un masque en Rust
             pos = (pos + step) % range;
         }
     }
