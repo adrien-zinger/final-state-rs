@@ -63,7 +63,7 @@ pub fn build_encode_table(
     (table, delta_nb_bits, starts)
 }
 
-#[inline]
+#[inline] // I want to be sure that will be inlined
 pub fn encode_symbol(
     delta_nb_bits: &[usize],
     starts: &[i32],
@@ -74,19 +74,10 @@ pub fn encode_symbol(
 ) -> usize {
     let nb_bits_out = (state + delta_nb_bits[symbol]) >> 16;
     stream.unchecked_write(state, nb_bits_out as u8);
-    println!(
-        "encode symbol: {}, actual state: {} ({:b}), nb_bits_out: {}, next state {}(shifted) + {}(start) = {};",
-        char::from(symbol as u8),
-        state,
-        state,
-        nb_bits_out,
-        (state >> nb_bits_out),
-        starts[symbol],
-        table[((state >> nb_bits_out) as i32 + starts[symbol]) as usize]
-    );
     table[((state >> nb_bits_out) as i32 + starts[symbol]) as usize]
 }
 
+#[inline] // I want to be sure that will be inlined
 pub fn decode_symbol(
     dstream: &mut BitDstream,
     nb_bits: &[usize],
