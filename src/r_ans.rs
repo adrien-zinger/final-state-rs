@@ -4,9 +4,12 @@ use tiny_bitstream::{BitDstream, BitEstream, BitReader, BitWriter};
 use crate::normalization::{build_cumulative_function, derivative_normalization};
 
 pub fn compress(state: usize, table_log: usize, frequency: usize, cumul: usize) -> usize {
-    #[cfg(feature = "checks")]
-    // todo: add some natural checks behind a compilation feature; in some case that test
+    // add some natural checks behind a compilation feature; in some case that test
     // doesn't have any reasons to be true.
+    // In a normal case, for example, we read all symbol from the source, and we count
+    // the number of apparance of that symbol. So the frequency is higher than zero by
+    // definition.
+    #[cfg(feature = "checks")]
     if frequency == 0 {
         panic!("attemp division by zero because of an unexpected null frequency")
     }

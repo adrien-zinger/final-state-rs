@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use tiny_bitstream::{BitDstream, BitEstream, BitReader};
+
 #[test]
 fn build_ecoding_table() {
     let mut hist = vec![24, 20, 49, 18];
@@ -17,13 +19,13 @@ fn build_ecoding_table() {
     let src = vec![
         65532, 65532, 55, 65534, 65534, 1, 65534, 65534, 65534, 65534, 65534, 65534, 65534,
     ];
-    let r = crate::fse16::encode(&mut hist, &symbol_index, table_log, &src);
+    let r = crate::r_ans::encode(&mut hist, &symbol_index, table_log, &src);
     println!("starting state {}", r.0);
 
     println!("\n{:?}\n", r);
 
     let (state, nb_bits, flac) = r;
-    let decoded = crate::fse16::decode(state, nb_bits, flac, &hist, &symbols, table_log);
+    let decoded = crate::r_ans::decode(state, nb_bits, flac, &hist, &symbols, table_log);
 
     assert_eq!(src, decoded);
     println!("{:?}", decoded);
@@ -45,13 +47,13 @@ fn tmp() {
 
     let src = vec![2, 1, 1, 4, 1, 2, 1, 3];
 
-    let r = crate::fse16::encode(&mut hist, &symbol_index, table_log, &src);
+    let r = crate::r_ans::encode(&mut hist, &symbol_index, table_log, &src);
 
     println!("\n{:?} {:0b} + {:0b}\n", r, r.0, r.2[0]);
     println!("\n{:?}\n", hist);
 
     let (state, nb_bits, flac) = r;
-    let decoded = crate::fse16::decode(state, nb_bits, flac, &hist, &symbols, table_log);
+    let decoded = crate::r_ans::decode(state, nb_bits, flac, &hist, &symbols, table_log);
 
     assert_eq!(src, decoded);
     println!("{:?}", decoded);
@@ -77,14 +79,14 @@ fn fuzzingly() {
         hist[symbol_index as usize] += 1;
     }
     let src_size = src.len() * 16;
-    let r = crate::fse16::encode(&mut hist, &symbol_index, table_log, &src);
+    let r = crate::r_ans::encode(&mut hist, &symbol_index, table_log, &src);
     println!("starting state {}", r.0);
 
     println!("\n{:?}\n", r);
 
     let (state, nb_bits, flac) = r;
     let encoded_size = nb_bits.len() * 8 + flac.len() * 8;
-    let decoded = crate::fse16::decode(state, nb_bits, flac, &hist, &alphabet, table_log);
+    let decoded = crate::r_ans::decode(state, nb_bits, flac, &hist, &alphabet, table_log);
 
     assert_eq!(src, decoded);
     println!("{:?}", decoded);
@@ -106,14 +108,14 @@ fn fuzzingly_u8() {
     }
     let src_size = src.len() * 16;
     println!("hist: {:?}", hist);
-    let r = crate::fse16::encode_u8(&mut hist, table_log, &src);
+    let r = crate::r_ans::encode_u8(&mut hist, table_log, &src);
     println!("starting state {}", r.0);
 
     println!("\n{:?}\n", r);
 
     let (state, nb_bits, flac) = r;
     let encoded_size = nb_bits.len() * 8 + flac.len() * 8;
-    let decoded = crate::fse16::decode_u8(state, nb_bits, flac, &hist, table_log);
+    let decoded = crate::r_ans::decode_u8(state, nb_bits, flac, &hist, table_log);
 
     assert_eq!(src, decoded);
     println!("{:?}", decoded);
@@ -196,4 +198,59 @@ fn test_slow_normalization_vs_fast() {
     let normalized = slow_normalization(&hist, table_log).expect("expect to succeed");
     let normalized2 = fast_normalization_1(&hist, table_log).expect("expect to succeed");
     assert_eq!(normalized, normalized2)
+}
+
+#[test]
+fn test_build_table() {
+    use crate::{
+        spreads::bit_reverse_spread,
+        t_ans::{build_decode_table, build_encode_table, decode_symbol, encode_symbol},
+    };
+
+    let mut hist = [0; 256];
+    hist['A' as usize] = 3;
+    hist['B' as usize] = 3;
+    hist['C' as usize] = 2;
+    let data = "ABBCBACA";
+    let spread = bit_reverse_spread(&hist, 3);
+
+    let (table, delta_nb_bits, starts) = build_encode_table(&hist, 3, &spread);
+
+    let mut state = 8;
+    let mut stream = BitEstream::new();
+
+    data.chars().for_each(|symbol| {
+        state = encode_symbol(
+            &delta_nb_bits,
+            &starts,
+            &table,
+            state,
+            symbol as usize,
+            &mut stream,
+        );
+    });
+
+    let encoded_data: Vec<u8> = stream.try_into().unwrap();
+    for i in encoded_data.iter() {
+        print!("{:08b}", i);
+    }
+    println!();
+    let mut dstream: BitDstream = encoded_data.try_into().unwrap();
+    dstream.read(1).unwrap(); // read mark
+
+    state -= 1 << 3;
+    let (nb_bits, new_states) = build_decode_table(3, &spread, &hist);
+
+    let mut decoded_data = vec![];
+    for _ in 0..8 {
+        let (new_state, symbol) =
+            decode_symbol(&mut dstream, &nb_bits, &new_states, state, &spread);
+        decoded_data.push(symbol);
+        state = new_state;
+    }
+    decoded_data.reverse();
+    assert_eq!(
+        data.chars().map(|c| c as u8).collect::<Vec<u8>>(),
+        decoded_data
+    );
 }

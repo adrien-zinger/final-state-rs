@@ -16,6 +16,15 @@ tiny-bitstream = "0"
 rand = "0.8.4"
 criterion = "0.3"
 
+
+[[bench]]
+name = "counters"
+harness = false
+
 [[bench]]
 name = "normalization"
+harness = false
+
+[[bench]]
+name = "spreads"
 harness = false
