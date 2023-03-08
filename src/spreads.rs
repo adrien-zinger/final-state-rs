@@ -23,14 +23,14 @@
 /// hist['B' as usize] = 7;
 /// hist['C' as usize] = 3;
 /// let _ = if is_sorted(&hist) {
-///     final_state_rs::spreads::fse_spread_sorted(&hist, 4)
+///     final_state_rs::spreads::fse_spread(&hist, 4)
 /// } else {
 ///     final_state_rs::spreads::fse_spread_unsorted(&hist, 4)
 /// };
 /// ```
-pub fn fse_spread_sorted(sorted_hist: &[usize], table_log: usize) -> Vec<u8> {
-    let m = 1 << table_log;
-    let mut ret = vec![0; m];
+pub fn fse_spread(sorted_hist: &[usize], table_log: usize) -> Vec<u8> {
+    let table_size = 1 << table_log;
+    let mut ret = vec![0; table_size];
     let mut pos = 0;
     let step = (1 << (table_log - 1)) + (1 << (table_log - 3)) + 1;
     for (i, &count) in sorted_hist
@@ -39,8 +39,11 @@ pub fn fse_spread_sorted(sorted_hist: &[usize], table_log: usize) -> Vec<u8> {
         .filter(|(_, count)| **count > 0)
     {
         for _ in 0..count {
+            while ret[pos] != 0 {
+                pos = (pos + 1) % table_size;
+            }
             ret[pos] = i as u8;
-            pos = (pos + step) % m;
+            pos = (pos + step) % table_size;
         }
     }
     ret
@@ -48,21 +51,24 @@ pub fn fse_spread_sorted(sorted_hist: &[usize], table_log: usize) -> Vec<u8> {
 
 /// Identique à fse_spread_sorted en tout point.
 /// nextState = (currentState + (5/8) range + 3) % range
-pub fn fast_compression_spread_sorted(sorted_hist: &[usize], table_log: usize) -> Vec<u8> {
-    let range = 1 << table_log;
-    let mut ret = vec![0; range];
+pub fn fast_spread_2(sorted_hist: &[usize], table_log: usize) -> Vec<u8> {
+    let table_size = 1 << table_log;
+    let mut ret = vec![0; table_size];
     let mut pos = 0;
-    let step = ((5 * range) >> 3) + 3;
+    let step = ((5 * table_size) >> 3) + 3;
     for (i, &count) in sorted_hist
         .iter()
         .enumerate()
         .filter(|(_, count)| **count > 0)
     {
         for _ in 0..count {
+            while ret[pos] != 0 {
+                pos = (pos + 1) % table_size;
+            }
             ret[pos] = i as u8;
             // Il n'y a pas de différence de performance notable
             // entre un % et un masque en Rust
-            pos = (pos + step) % range;
+            pos = (pos + step) % table_size;
         }
     }
     ret
@@ -70,8 +76,8 @@ pub fn fast_compression_spread_sorted(sorted_hist: &[usize], table_log: usize) -
 
 /// Même chose que fse_spread_sorted sauf qu'on trie l'histogramme en plus.
 pub fn fse_spread_unsorted(hist: &[usize], table_log: usize) -> Vec<u8> {
-    let m = 1 << table_log;
-    let mut ret = vec![0; m];
+    let table_size = 1 << table_log;
+    let mut ret = vec![0; table_size];
     let mut pos = 0;
     let step = (1 << (table_log - 1)) + (1 << (table_log - 3)) + 1;
     let mut sorted_hist = hist
@@ -85,21 +91,26 @@ pub fn fse_spread_unsorted(hist: &[usize], table_log: usize) -> Vec<u8> {
 
     for (i, count) in sorted_hist {
         for _ in 0..count {
+            while ret[pos] != 0 {
+                pos = (pos + 1) % table_size;
+            }
             ret[pos] = i as u8;
-            pos = (pos + step) % m;
+            pos = (pos + step) % table_size;
         }
     }
     ret
 }
 
 /// Proposition lu dans le blog de Charles Bloom à propos de tANS.
-/// todo: l'histogramme devrait être trié, dans mon implémentation
-///       actuelle ce n'est pas du tout le cas.
-pub fn bit_reverse_spread(hist: &[usize], table_log: usize) -> Vec<u8> {
+pub fn bit_reverse_spread(sorted_hist: &[usize], table_log: usize) -> Vec<u8> {
     let mut s = 0u32;
     let mut ret = vec![0; 1 << table_log];
     let t = u32::BITS - table_log as u32;
-    for (i, &count) in hist.iter().enumerate().filter(|(_, count)| **count > 0) {
+    for (i, &count) in sorted_hist
+        .iter()
+        .enumerate()
+        .filter(|(_, count)| **count > 0)
+    {
         for _ in 0..count {
             ret[(s.reverse_bits() >> t) as usize] = i as u8;
             s += 1;
@@ -121,7 +132,7 @@ fn fse_spread_test() {
     sorted_hist['C' as usize] = 3;
     assert_eq!(
         vec!['A', 'A', 'A', 'B', 'B', 'C', 'A', 'A', 'B', 'B', 'C', 'A', 'A', 'B', 'B', 'C'],
-        fse_spread_sorted(&sorted_hist, 4)
+        fse_spread(&sorted_hist, 4)
             .iter()
             .map(|c| char::from(*c))
             .collect::<Vec<char>>()
@@ -137,7 +148,7 @@ fn fast_compression_spread_test() {
     sorted_hist['D' as usize] = 3;
     assert_eq!(
         vec!['A', 'B', 'C', 'D', 'A', 'B', 'D', 'A', 'B', 'D', 'A', 'B', 'C', 'A', 'B', 'C'],
-        fast_compression_spread_sorted(&sorted_hist, 4)
+        fast_spread_2(&sorted_hist, 4)
             .iter()
             .map(|c| char::from(*c))
             .collect::<Vec<char>>()

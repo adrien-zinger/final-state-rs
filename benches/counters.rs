@@ -7,7 +7,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         .collect::<Vec<u8>>();
     c.bench_function("simple count", |b| {
         let mut ret = [0; 256];
-        b.iter(|| count::simple_count_u8(&src, &mut ret))
+        b.iter(|| count::simple_count_u8_inplace(&src, &mut ret))
     });
     c.bench_function("multi_bucket count", |b| {
         let mut ret = [0; 256];

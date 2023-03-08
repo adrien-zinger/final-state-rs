@@ -8,7 +8,8 @@
 use tiny_bitstream::{BitDstream, BitEstream, BitReader, BitWriter};
 
 use crate::{
-    count::simple_count_u8, normalization::fast_normalization_1, spreads::bit_reverse_spread,
+    count::simple_count_u8_inplace, normalization::fast_normalization_1,
+    spreads::bit_reverse_spread,
 };
 
 /// Preparation de la table d'encodage pour tANS.
@@ -140,7 +141,7 @@ pub fn build_decode_table(
 
 pub fn encode_1(src: &[u8], table_log: usize) -> (Vec<u8>, usize, usize) {
     let mut histogram = [0; 256];
-    simple_count_u8(src, &mut histogram);
+    simple_count_u8_inplace(src, &mut histogram);
     let histogram = fast_normalization_1(&histogram, table_log).unwrap();
     let spread = bit_reverse_spread(&histogram, table_log);
     // Récupère le matériel pour encoder une source
@@ -164,6 +165,30 @@ pub fn encode_1(src: &[u8], table_log: usize) -> (Vec<u8>, usize, usize) {
     )
 }
 
+pub fn encode_tans(
+    src: &[u8],
+    histogram: &[usize],
+    spread: &[u8],
+    table_log: usize,
+    state: &mut usize,
+) -> (Vec<u8>, usize) {
+    // Récupère le matériel pour encoder une source
+    let (table, delta_nb_bits, starts) = build_encode_table(histogram, table_log, spread);
+    let mut estream = BitEstream::new();
+    //let mut state = 1 << table_log;
+    src.iter().for_each(|&symbol| {
+        *state = encode_symbol(
+            &delta_nb_bits,
+            &starts,
+            &table,
+            *state,
+            symbol as usize,
+            &mut estream,
+        )
+    });
+    (estream.try_into().unwrap(), *state - (1 << table_log))
+}
+
 pub fn decode_1(src: Vec<u8>, table_log: usize, mut state: usize, buffer: &mut [u8]) {
     // La première étape est la construction de l'histogramme, il s'agit d'une
     // structure de la taille du nombre de symboles (255 si le symbole est sur 1 octet).
@@ -177,7 +202,7 @@ pub fn decode_1(src: Vec<u8>, table_log: usize, mut state: usize, buffer: &mut [
     // En pratique, un demi bit n'existe pas, lors de la construction de la table, on
     // deffinit un seuil à partir duquel on ecrira 8 bit au lieu de 7.
     let mut histogram = [0; 256];
-    simple_count_u8(&src, &mut histogram);
+    simple_count_u8_inplace(&src, &mut histogram);
     // Normalisation, la somme de l'histogramme doit être égale à 2^table_log.
     let histogram = fast_normalization_1(&histogram, table_log).unwrap();
 

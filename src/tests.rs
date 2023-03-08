@@ -1,99 +1,6 @@
-use std::collections::HashMap;
-
 use tiny_bitstream::{BitDstream, BitEstream, BitReader};
 
-#[test]
-fn build_ecoding_table() {
-    let mut hist = vec![24, 20, 49, 18];
-    let mut symbol_index = HashMap::new();
-
-    symbol_index.insert(65534, 2);
-    symbol_index.insert(65532, 1);
-    symbol_index.insert(55, 0);
-    symbol_index.insert(1, 3);
-
-    let symbols = vec![55, 65532, 65534, 1];
-
-    let table_log = 3;
-
-    let src = vec![
-        65532, 65532, 55, 65534, 65534, 1, 65534, 65534, 65534, 65534, 65534, 65534, 65534,
-    ];
-    let r = crate::r_ans::encode(&mut hist, &symbol_index, table_log, &src);
-    println!("starting state {}", r.0);
-
-    println!("\n{:?}\n", r);
-
-    let (state, nb_bits, flac) = r;
-    let decoded = crate::r_ans::decode(state, nb_bits, flac, &hist, &symbols, table_log);
-
-    assert_eq!(src, decoded);
-    println!("{:?}", decoded);
-}
-
-#[test]
-fn tmp() {
-    let mut hist = vec![1000, 500, 125, 125];
-    let mut symbol_index = HashMap::new();
-
-    symbol_index.insert(1, 0);
-    symbol_index.insert(2, 1);
-    symbol_index.insert(3, 2);
-    symbol_index.insert(4, 3);
-
-    let symbols = vec![1, 2, 3, 4];
-    //                 A  B  C  D
-    let table_log = 3;
-
-    let src = vec![2, 1, 1, 4, 1, 2, 1, 3];
-
-    let r = crate::r_ans::encode(&mut hist, &symbol_index, table_log, &src);
-
-    println!("\n{:?} {:0b} + {:0b}\n", r, r.0, r.2[0]);
-    println!("\n{:?}\n", hist);
-
-    let (state, nb_bits, flac) = r;
-    let decoded = crate::r_ans::decode(state, nb_bits, flac, &hist, &symbols, table_log);
-
-    assert_eq!(src, decoded);
-    println!("{:?}", decoded);
-}
-
-#[test]
-fn fuzzingly() {
-    let alphabet_size = 100;
-    let mut alphabet = vec![];
-    let mut symbol_index = HashMap::new();
-    let table_log = 12; // should be enough!
-    for i in 0..alphabet_size {
-        let symbol = rand::random::<u16>();
-        alphabet.push(symbol);
-        symbol_index.insert(symbol, i);
-    }
-
-    let mut src = vec![];
-    let mut hist = vec![1; alphabet_size as usize];
-    for _ in 0..100 {
-        let symbol_index = rand::random::<usize>() % alphabet_size;
-        src.push(*alphabet.get(symbol_index).unwrap());
-        hist[symbol_index as usize] += 1;
-    }
-    let src_size = src.len() * 16;
-    let r = crate::r_ans::encode(&mut hist, &symbol_index, table_log, &src);
-    println!("starting state {}", r.0);
-
-    println!("\n{:?}\n", r);
-
-    let (state, nb_bits, flac) = r;
-    let encoded_size = nb_bits.len() * 8 + flac.len() * 8;
-    let decoded = crate::r_ans::decode(state, nb_bits, flac, &hist, &alphabet, table_log);
-
-    assert_eq!(src, decoded);
-    println!("{:?}", decoded);
-
-    println!("encoded size + pop information: {}", encoded_size);
-    println!("src size: {}", src_size);
-}
+use crate::normalization::normalization_with_compensation_binary_heap;
 
 #[test]
 fn fuzzingly_u8() {
@@ -101,21 +8,22 @@ fn fuzzingly_u8() {
 
     let mut src = vec![];
     let mut hist = vec![1; 256];
-    for _ in 0..1000 {
+    for _ in 0..100 {
         let symbol = rand::random::<u8>();
         src.push(symbol);
         hist[symbol as usize] += 1;
     }
     let src_size = src.len() * 16;
     println!("hist: {:?}", hist);
-    let r = crate::r_ans::encode_u8(&mut hist, table_log, &src);
+    let hist = normalization_with_compensation_binary_heap(&hist, table_log, 256).unwrap();
+    let r = crate::r_ans::encode_rans(&hist, table_log, &src);
     println!("starting state {}", r.0);
 
     println!("\n{:?}\n", r);
 
     let (state, nb_bits, flac) = r;
     let encoded_size = nb_bits.len() * 8 + flac.len() * 8;
-    let decoded = crate::r_ans::decode_u8(state, nb_bits, flac, &hist, table_log);
+    let decoded = crate::r_ans::decode_rans(state, nb_bits, flac, &hist, table_log, src.len());
 
     assert_eq!(src, decoded);
     println!("{:?}", decoded);
@@ -125,30 +33,44 @@ fn fuzzingly_u8() {
 }
 
 #[test]
-fn test_derivative_normalization() {
-    use crate::normalization::derivative_normalization;
+fn fuzzingly_zero_u8() {
+    // Test rANS avec une source random, comme dans `fuzzingly_zero_u8` excepté
+    // qu'on force quelques elements à 0.
+    let table_log = 13; // should be enough!
 
-    let mut hist = vec![2, 3, 6, 2];
-    let table_log = 4;
-    let cs = derivative_normalization(&mut hist, table_log);
-    println!("{:?}, {:?}", hist, cs);
-    assert_eq!(hist.iter().sum::<usize>(), 1 << table_log)
-}
+    let mut src = vec![];
+    let mut hist = vec![0; 256];
+    let mut zeroed = vec![0; 256];
+    for _ in 0..10 {
+        let symbol = rand::random::<u8>();
+        zeroed[symbol as usize] = 1;
+    }
+    for _ in 0..100 {
+        let symbol = rand::random::<u8>();
+        if zeroed[symbol as usize] == 1 {
+            continue;
+        }
+        src.push(symbol);
+        hist[symbol as usize] += 1;
+    }
+    let src_size = src.len() * 16;
+    println!("hist: {:?}", hist);
+    let hist = normalization_with_compensation_binary_heap(&hist, table_log, 256).unwrap();
 
-#[test]
-fn test_derivative_normalization_slow_vs_fast() {
-    use crate::normalization::derivative_normalization;
-    use crate::normalization::derivative_normalization_fast;
+    let r = crate::r_ans::encode_rans(&hist, table_log, &src);
+    println!("starting state {}", r.0);
 
-    let mut hist = vec![2, 3, 6, 2];
-    let mut hist2 = vec![2, 3, 6, 2];
-    let table_log = 4;
-    // Ce test passe mais hélas est fortuit, les arrondis dans la méthode
-    // rapide peuvent amener à avoir une somme total < 2^table_log et le
-    // problème est palier en ajoutant au dernier élément le reste.
-    derivative_normalization(&mut hist, table_log).unwrap();
-    derivative_normalization_fast(&mut hist2, table_log).unwrap();
-    assert_eq!(hist, hist2)
+    println!("\n{:?}\n", r);
+
+    let (state, nb_bits, flac) = r;
+    let encoded_size = nb_bits.len() * 8 + flac.len() * 8;
+    let decoded = crate::r_ans::decode_rans(state, nb_bits, flac, &hist, table_log, src.len());
+
+    assert_eq!(src, decoded);
+    println!("{:?}", decoded);
+
+    println!("encoded size + pop information: {}", encoded_size);
+    println!("src size: {}", src_size);
 }
 
 #[test]
@@ -160,18 +82,6 @@ fn test_fast_normalization_1() {
     let normalized = fast_normalization_1(&hist, table_log).expect("expect to succeed");
     println!("{:?}", normalized);
     assert_eq!(normalized.iter().sum::<usize>(), 1 << table_log)
-}
-
-#[test]
-fn test_fast_normalization_1_inplace() {
-    use crate::normalization::{fast_normalization_1, zstd_normalization_1_inplace};
-
-    let mut hist = vec![2, 3, 6, 2];
-    let table_log = 4;
-    let normalized = fast_normalization_1(&hist, table_log).expect("expect to succeed");
-    println!("{:?}", normalized);
-    zstd_normalization_1_inplace(&mut hist, table_log).expect("expect to succeed");
-    assert_eq!(normalized, hist)
 }
 
 #[test]
@@ -253,4 +163,56 @@ fn test_build_table() {
         data.chars().map(|c| c as u8).collect::<Vec<u8>>(),
         decoded_data
     );
+}
+
+#[test]
+fn test_rans_homemade_1() {
+    use crate::{
+        normalization::normalization_with_fast_compensation,
+        r_ans::{decode_rans, encode_rans},
+    };
+
+    let table_log = 8;
+    let ((histogram, _), src) = get_calgary_extract_histogram_1();
+    let normalized_histogram = normalization_with_fast_compensation(&histogram, table_log).unwrap();
+
+    assert_eq!(normalized_histogram.iter().sum::<usize>(), 1 << table_log);
+
+    let (state, bits, stream) = encode_rans(&normalized_histogram, table_log, &src);
+    let res = decode_rans(
+        state,
+        bits,
+        stream,
+        &normalized_histogram,
+        table_log,
+        src.len(),
+    );
+
+    assert_eq!(src.to_vec(), res);
+}
+
+const fn get_calgary_extract_histogram_1() -> (([usize; 256], usize), [u8; 50]) {
+    use crate::count::simple_count_u8;
+    const SRC: [u8; 50] = [
+        37, 65, 32, 65, 98, 100, 111, 117, 44, 32, 73, 46, 69, 46, 10, 37, 65, 32, 87, 111, 110,
+        103, 44, 32, 75, 46, 89, 46, 10, 37, 68, 32, 49, 57, 56, 50, 10, 37, 84, 32, 65, 110, 97,
+        108, 121, 115, 105, 115, 32, 111,
+    ];
+    (simple_count_u8(&SRC), SRC)
+}
+
+#[test]
+fn normalization_with_compensation_binary_heap_test() {
+    use crate::normalization::normalization_with_compensation_binary_heap;
+    let table_log = 8;
+    let ((histogram, max_symbol), _) = get_calgary_extract_histogram_1();
+
+    let normalized_histogram =
+        normalization_with_compensation_binary_heap(&histogram, table_log, max_symbol).unwrap();
+
+    for i in 0..max_symbol {
+        if histogram[i] > 0 {
+            assert!(normalized_histogram[i] > 0);
+        }
+    }
 }

@@ -1,6 +1,35 @@
 /// Compute an histogram with a very basic method.
-pub fn simple_count_u8(src: &[u8], ret: &mut [usize; 256]) {
-    src.iter().for_each(|&c| ret[c as usize] += 1)
+pub fn simple_count_u8_inplace(src: &[u8], ret: &mut [usize; 256]) -> usize {
+    let mut max_symbol = 0;
+    src.iter().for_each(|&c| {
+        ret[c as usize] += 1;
+        max_symbol = std::cmp::max(max_symbol, c as usize)
+    });
+    max_symbol
+}
+
+/// Constant implementation of simple_count_u8_inplace. The implementation
+/// may looks like the method bellow but current Rust version miss std::cmp::max
+/// and for loops in constant functions.
+///
+/// If there is any update in a stable version of Rust, we would like to
+/// fix that.
+pub const fn simple_count_u8(src: &[u8]) -> ([usize; 256], usize) {
+    let mut max_symbol = 0;
+    let mut ret = [0usize; 256];
+    let mut i = 0;
+    loop {
+        if i == src.len() - 1 {
+            break;
+        }
+        let c = src[i] as usize;
+        ret[c as usize] += 1;
+        if max_symbol < c {
+            max_symbol = c;
+        }
+        i += 1;
+    }
+    (ret, max_symbol)
 }
 
 /// Un test pour vérifier si l'OoO en rust est possible, de cette manière

@@ -6,6 +6,8 @@
 //! Author: Adrien Zinger, avec l'inspiration du travail de Jarek Duda,
 //!         Yann Collet, Charles Bloom et bien d'autres.
 
+use std::collections::BinaryHeap;
+
 #[derive(Debug)]
 pub enum NormError {
     RunLengthEncoding(&'static str),
@@ -77,6 +79,178 @@ pub fn fast_normalization_1(
     Ok(norm)
 }
 
+/// Fonction de normalisation assez rapide
+pub fn normalization_with_fast_compensation(
+    hist: &[usize],
+    table_log: usize,
+) -> Result<Vec<usize>, Box<NormError>> {
+    let mut norm = vec![0usize; hist.len()];
+    let len = hist.len();
+
+    const HIGH_NUM: usize = (usize::BITS - 2) as usize;
+
+    let scale: usize = HIGH_NUM - table_log;
+    let step: usize = (1usize << HIGH_NUM) / hist.iter().sum::<usize>();
+    let mut max = 0;
+    let mut max_norm = &mut 0;
+    let mut total: usize = 0;
+    for (s, n) in hist.iter().copied().zip(norm.iter_mut()) {
+        if s == len {
+            return Err(Box::new(NormError::RunLengthEncoding(
+                "An rle compression should be more accurate",
+            )));
+        } else if s > 0 {
+            let proba = std::cmp::max(
+                1,
+                s.checked_mul(step)
+                    .ok_or(NormError::MultiplicationOverflow)?
+                    >> scale,
+            );
+            *n = proba;
+            if proba > max {
+                max_norm = n;
+                max = proba;
+            }
+            total += proba;
+        }
+    }
+    let table_size = 1 << table_log;
+    if total < table_size {
+        *max_norm += table_size - total;
+        assert_eq!(norm.iter().sum::<usize>(), table_size);
+        return Ok(norm);
+    }
+    while total > table_size {
+        for n in norm.iter_mut().rev() {
+            if total == table_size {
+                break;
+            }
+            if *n > 1 {
+                *n -= 1;
+                total -= 1;
+            }
+        }
+    }
+    assert_eq!(total, table_size);
+    assert_eq!(norm.iter().sum::<usize>(), table_size);
+
+    #[cfg(test)]
+    for (real_counter, normalized) in hist.iter().zip(norm.iter()) {
+        if *real_counter > 0 {
+            assert!(
+                *normalized != 0,
+                "if Fs > 0 then Normalize should be at least 1"
+            );
+        }
+    }
+
+    Ok(norm)
+}
+
+pub fn normalization_with_compensation_binary_heap(
+    histogram: &[usize],
+    table_log: usize,
+    max_symbol: usize,
+) -> Result<Vec<usize>, Box<NormError>> {
+    use std::cmp::max;
+    use NormError::MultiplicationOverflow as Overflow;
+
+    let mut normalized = vec![0usize; max_symbol];
+    let len = histogram.len();
+
+    const HIGH_NUM: usize = (usize::BITS - 2) as usize;
+
+    let scale: usize = HIGH_NUM - table_log;
+    let step: usize = (1usize << HIGH_NUM) / histogram.iter().sum::<usize>();
+    let mut total: usize = 0;
+
+    for (index, &count) in histogram.iter().enumerate().take(max_symbol) {
+        if count == len {
+            return Err(Box::new(NormError::RunLengthEncoding(
+                "An rle compression should be more accurate",
+            )));
+        } else if count > 0 {
+            let proba = max(count.checked_mul(step).ok_or(Overflow)? >> scale, 1);
+            normalized[index] = proba;
+            total += proba;
+        }
+    }
+
+    let table_size = 1 << table_log;
+    if total == table_size {
+        assert_eq!(normalized.iter().sum::<usize>(), table_size);
+        return Ok(normalized);
+    }
+
+    #[derive(PartialEq)]
+    struct SortedProba {
+        index: usize,
+        change: f32,
+    }
+
+    impl Ord for SortedProba {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            match self.change > other.change {
+                true => std::cmp::Ordering::Greater,
+                false => std::cmp::Ordering::Less,
+            }
+        }
+    }
+
+    impl PartialOrd for SortedProba {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            match self.index.partial_cmp(&other.index) {
+                Some(core::cmp::Ordering::Equal) => {}
+                ord => return ord,
+            }
+            self.change.partial_cmp(&other.change)
+        }
+    }
+
+    impl Eq for SortedProba {}
+
+    // Creation of a binary heap that will sort the probabilities.
+    let mut sorted_probas = BinaryHeap::with_capacity(max_symbol);
+    for index in
+        (0..max_symbol).filter(|&i| histogram[i] != 0 && (normalized[i] > 1 || table_size > total))
+    {
+        // (double) to[i] / (to[i] + correction_sign) ) * from[i];
+        let normalized_plus = if table_size > total {
+            normalized[index] + 1
+        } else {
+            normalized[index] - 1
+        };
+        let change =
+            ((normalized[index] as f32) / normalized_plus as f32).log2() * histogram[index] as f32;
+        sorted_probas.push(SortedProba { change, index });
+    }
+
+    while total != table_size {
+        let mut proba = sorted_probas.pop().unwrap();
+        if table_size > total {
+            normalized[proba.index] += 1;
+            total += 1;
+        } else {
+            normalized[proba.index] -= 1;
+            total -= 1;
+        }
+        if normalized[proba.index] > 1 || table_size > total {
+            let normalized_plus = if table_size > total {
+                normalized[proba.index] + 1
+            } else {
+                normalized[proba.index] - 1
+            };
+            proba.change = ((normalized[proba.index] as f32) / normalized_plus as f32).log2()
+                * histogram[proba.index] as f32;
+            sorted_probas.push(proba);
+        }
+    }
+
+    assert_eq!(total, table_size);
+    assert_eq!(normalized.iter().sum::<usize>(), table_size);
+    Ok(normalized)
+}
+
 /// Même fonction que `fast_normalisation_1` à l'exception qu'on n'augmente pas
 /// artificiellement les variables avec une grande valeur. Le fait de
 /// travailler avec des nombres rationnels ralentit énormément le calcul.
@@ -108,22 +282,33 @@ pub fn slow_normalization(hist: &[usize], table_log: usize) -> Result<Vec<usize>
 pub fn zstd_normalization_1_inplace(
     hist: &mut [usize],
     table_log: usize,
+    max_symbol: usize,
 ) -> Result<(), Box<NormError>> {
     let len = hist.len();
     const HIGH_NUM: usize = (usize::BITS - 2) as usize;
 
     let scale: usize = HIGH_NUM - table_log;
-    let step: usize = (1usize << HIGH_NUM) / hist.iter().sum::<usize>();
+    let total = hist.iter().sum::<usize>();
+    let step: usize = (1usize << HIGH_NUM) / total;
+    const RTB_TABLE: [usize; 8] = [0, 473195, 504333, 520860, 550000, 700000, 750000, 830000];
+    let v_step = 1 << (scale - 20);
     let mut max = 0;
     let mut max_norm = &mut 0;
     let mut still_to_distribute: isize = 1 << table_log;
-    for s in hist.iter_mut() {
-        if *s == len {
+    let low_threshold = total >> table_log;
+    for s in hist.iter_mut().take(max_symbol) {
+        if *s <= low_threshold {
+            *s = 1;
+            still_to_distribute -= 1;
+        } else if *s == len {
             return Err(Box::new(NormError::RunLengthEncoding(
                 "An rle compression should be more accurate",
             )));
         } else if *s > 0 {
-            let proba = ((*s) * step) >> scale;
+            let mut proba = std::cmp::max(1, ((*s) * step) >> scale);
+            if proba < 8 && (*s) * step - (proba << scale) > v_step * RTB_TABLE[proba] {
+                proba += 1;
+            }
             *s = proba;
             if proba > max {
                 max_norm = s;
@@ -133,7 +318,7 @@ pub fn zstd_normalization_1_inplace(
         }
     }
     if -still_to_distribute >= (max >> 1) as isize {
-        // todo: erreur
+        panic!("fail to normalize")
     }
     *max_norm += still_to_distribute as usize;
     Ok(())
@@ -155,89 +340,4 @@ pub fn build_cumulative_function(hist: &[usize]) -> Vec<usize> {
     let sum = hist.iter().fold(0, cumul_fn);
     cs.push(sum);
     cs
-}
-
-/// Normalisation utilisant une interpolation linéaire de la somme cumulative
-/// de l'histogramme. On normalise la fonction cumulative et on en déduis
-/// l'histogramme en calculant la dérivée de la fonction.
-///
-/// On pourrait surement améliorer cette méthode en la rendant plus robuste.
-/// Par exemple on pourrait tenter de normaliser avec une table log < total de
-/// l'histogramme. Mais cette méthode reste un peu plus lente que l'original,
-/// de plus je ne peux pas affirmer qu'elle soit performante pour la
-/// compression. À tester.
-///
-/// # Return
-/// The cumulative function in a Ok, or a normalization error in an Err.
-/// The input `histogram` is modified in a side effect.
-pub fn derivative_normalization(
-    histogram: &mut [usize],
-    table_log: usize,
-) -> Result<Vec<usize>, NormError> {
-    // linear interpolation naïve sur une fonction de cumulation
-    let mut previous = 0;
-    let mut cumul = build_cumulative_function(histogram);
-    let max_cumul = *cumul.last().unwrap();
-    let target_range = 1 << table_log; // D - C
-    let actual_range = max_cumul; // B - A
-
-    cumul.iter_mut().enumerate().skip(1).for_each(|(i, c)| {
-        *c = (target_range * (*c)) / actual_range;
-        if *c <= previous {
-            panic!("table log too low");
-            // todo: we expect to never force value actually...
-            // we need to increase table_log instead
-
-            // note: we could force to previous + 1 and accumulate a dept that
-            //       we substract to the nexts values. If at the end we keep
-            //       a dept > 0 we should panic. If not just inform user that
-            //       we got to force the normalized counter to fit.
-
-            // D'autres idées:
-            // 1. Correction à posteriorie, si j'ai une dette, après avoir
-            // calculé ma cdf je verifie si je peut pas supprimer quelques
-            // truc pour forcer a faire entrer dans mon table_log.
-            // 2. Panic je double
-            // 3. Lorsque je tombe sur un pépin, j'invertie les deux dernières
-            // valeurs.
-        }
-
-        histogram[i - 1] = *c - previous;
-        previous = *c;
-    });
-    Ok(cumul)
-}
-
-/// Pareil en somme à la normalisation dérivative. Excepté qu'on augmente le
-/// numérateur avec un nombre important (2^62 ou 2^30 selon l'architecture).
-/// Cette méthode peut ne pas être adapté avec des fréquence d'aparitions trop
-/// grandes.
-pub fn derivative_normalization_fast(
-    histogram: &mut [usize],
-    table_log: usize,
-) -> Result<Vec<usize>, NormError> {
-    let mut previous = 0;
-    let mut cumul = build_cumulative_function(histogram);
-    let max_cumul = *cumul.last().unwrap();
-    const HIGH_NUM: usize = usize::BITS as usize - 2;
-    let scale: usize = HIGH_NUM - table_log;
-    let step = (1 << HIGH_NUM) / max_cumul;
-    let mut still_to_distribute = 1 << table_log;
-    for (i, c) in cumul.iter_mut().enumerate().skip(1) {
-        *c = (*c)
-            .checked_mul(step)
-            .ok_or(NormError::MultiplicationOverflow)?
-            >> scale;
-        if *c <= previous {
-            panic!("table log too low");
-        }
-        histogram[i - 1] = *c - previous;
-        still_to_distribute -= histogram[i - 1];
-        previous = *c;
-    }
-    if still_to_distribute > 0 {
-        *cumul.last_mut().unwrap() += still_to_distribute;
-        *histogram.last_mut().unwrap() += still_to_distribute;
-    }
-    Ok(cumul)
 }

@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use final_state_rs::spreads::fast_compression_spread_sorted;
+use final_state_rs::spreads::fast_spread_2;
 
 fn criterion_benchmark(c: &mut Criterion) {
     let mut sorted_hist = [0; 256];
@@ -7,8 +7,8 @@ fn criterion_benchmark(c: &mut Criterion) {
     sorted_hist['B' as usize] = 5;
     sorted_hist['C' as usize] = 3;
     sorted_hist['D' as usize] = 3;
-    c.bench_function("fast compression spread", |b| {
-        b.iter(|| fast_compression_spread_sorted(&sorted_hist, 10))
+    c.bench_function("fast spread 2", |b| {
+        b.iter(|| fast_spread_2(&sorted_hist, 10))
     });
 }
 
