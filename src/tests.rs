@@ -1,6 +1,13 @@
+use std::{fs::File, io::Read};
+
 use tiny_bitstream::{BitDstream, BitEstream, BitReader};
 
-use crate::normalization::normalization_with_compensation_binary_heap;
+use crate::{
+    count::{
+        divide_and_conquer_count, multi_bucket_count_u8, simple_count_u8, simple_count_u8_inplace,
+    },
+    normalization::normalization_with_compensation_binary_heap,
+};
 
 #[test]
 fn fuzzingly_u8() {
@@ -192,7 +199,6 @@ fn test_rans_homemade_1() {
 }
 
 const fn get_calgary_extract_histogram_1() -> (([usize; 256], usize), [u8; 50]) {
-    use crate::count::simple_count_u8;
     const SRC: [u8; 50] = [
         37, 65, 32, 65, 98, 100, 111, 117, 44, 32, 73, 46, 69, 46, 10, 37, 65, 32, 87, 111, 110,
         103, 44, 32, 75, 46, 89, 46, 10, 37, 68, 32, 49, 57, 56, 50, 10, 37, 84, 32, 65, 110, 97,
@@ -215,4 +221,41 @@ fn normalization_with_compensation_binary_heap_test() {
             assert!(normalized_histogram[i] > 0);
         }
     }
+}
+
+#[test]
+fn test_counters_consistency() {
+    let mut book1 = vec![];
+    File::open("./rsc/calgary_book1")
+        .expect("Cannot find calgary book1 ressource")
+        .read_to_end(&mut book1)
+        .expect("Unexpected fail to read calgary book1 ressource");
+    let mut hist1 = [0; 256];
+    let max1 = simple_count_u8_inplace(&book1, &mut hist1);
+    let (hist2, max2) = simple_count_u8(&book1);
+    let (hist3, max3) =
+        divide_and_conquer_count(&book1, std::thread::available_parallelism().unwrap().get());
+    let mut hist4 = [0; 256];
+    let max4 = multi_bucket_count_u8(&book1, &mut hist4);
+    assert_eq!(hist1, hist2);
+    assert_eq!(hist2, hist3);
+    assert_eq!(hist3, hist4);
+    assert_eq!(max1, max2);
+    assert_eq!(max2, max3);
+    assert_eq!(max3, max4);
+}
+/// Ce test est une vérification du compteur à plusieurs buckets. Il
+/// est important que même des sources aillant une taille modulo 4 différente
+/// de zéro aient un compte juste.
+#[test]
+fn correctness_multi_bucket_count() {
+    use crate::count::multi_bucket_count_u8;
+
+    let mut ret = [0; 256];
+    multi_bucket_count_u8(&[1, 2, 3, 4, 5], &mut ret);
+    assert_eq!(ret[1], 1, "error at the 1st block");
+    assert_eq!(ret[2], 1, "error at the 2nd block");
+    assert_eq!(ret[3], 1, "error at the 3th block");
+    assert_eq!(ret[4], 1, "error at the 4th block");
+    assert_eq!(ret[5], 1, "error at the 5th block");
 }

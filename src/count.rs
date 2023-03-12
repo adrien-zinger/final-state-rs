@@ -22,7 +22,7 @@ pub const fn simple_count_u8(src: &[u8]) -> ([usize; 256], usize) {
     let mut ret = [0usize; 256];
     let mut i = 0;
     loop {
-        if i == src.len() - 1 {
+        if i == src.len() {
             break;
         }
         let c = src[i] as usize;
@@ -57,10 +57,15 @@ pub const fn simple_count_u8(src: &[u8]) -> ([usize; 256], usize) {
 /// bucket4[s4] += 1;             // 4.2
 /// ```
 pub fn multi_bucket_count_u8(src: &[u8], ret: &mut [usize; 256]) -> usize {
+    assert!(
+        src.len() >= 4,
+        "Length of src too small for a multibucket count"
+    );
     let mut bucket1 = [0usize; 256];
     let mut bucket2 = [0usize; 256];
     let mut bucket3 = [0usize; 256];
     let mut bucket4 = [0usize; 256];
+    let mut index = 0;
     for i in (0..src.len() - 4).step_by(4) {
         let s1 = src[i] as usize; // 1
         bucket1[s1] += 1;
@@ -70,11 +75,50 @@ pub fn multi_bucket_count_u8(src: &[u8], ret: &mut [usize; 256]) -> usize {
         bucket3[s3] += 1;
         let s4 = src[i + 3] as usize; // 4
         bucket4[s4] += 1;
+        index = i + 4;
     }
+    (index..src.len()).for_each(|i| {
+        let s = src[i] as usize; // 4
+        bucket1[s] += 1;
+    });
     let mut max_symbol = 0;
     for i in 0..ret.len() {
         ret[i] = bucket1[i] + bucket2[i] + bucket3[i] + bucket4[i];
-        max_symbol = std::cmp::max(max_symbol, ret[i]);
+        if ret[i] > 0 {
+            max_symbol = i;
+        }
     }
     max_symbol
+}
+
+/// Vu que précédemment nous avons consacré du temps à écrire un algorithm
+/// de parallélisation du compteur de symboles bas niveau, nous passerons également
+/// un peu de temps à écrire un "divisé pour mieux rêgner" beaucoup plus classique.
+#[cfg(feature = "rayon")]
+pub fn divide_and_conquer_count(src: &[u8], split: usize) -> ([usize; 256], usize) {
+    use rayon::prelude::{ParallelIterator, ParallelSlice};
+
+    let mut ret = [0; 256];
+    let chunk_size = src.len() / split;
+    let buckets = src
+        .par_chunks(chunk_size)
+        .map(|b| {
+            let mut ret = [0usize; 256];
+            b.iter().for_each(|&c| ret[c as usize] += 1);
+            ret
+        })
+        .collect::<Vec<[usize; 256]>>();
+
+    for bucket in buckets {
+        for (&b, r) in bucket.iter().zip(ret.iter_mut()) {
+            *r += b;
+        }
+    }
+    let mut max_symbol = 0;
+    (0..ret.len()).for_each(|i| {
+        if ret[i] > 0 {
+            max_symbol = i;
+        }
+    });
+    (ret, max_symbol)
 }
