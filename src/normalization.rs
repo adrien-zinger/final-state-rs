@@ -155,7 +155,7 @@ pub fn normalization_with_compensation_binary_heap(
     use std::cmp::max;
     use NormError::MultiplicationOverflow as Overflow;
 
-    let mut normalized = vec![0usize; max_symbol];
+    let mut normalized = vec![0usize; max_symbol + 1];
     let len = histogram.len();
 
     const HIGH_NUM: usize = (usize::BITS - 2) as usize;
@@ -164,7 +164,7 @@ pub fn normalization_with_compensation_binary_heap(
     let step: usize = (1usize << HIGH_NUM) / histogram.iter().sum::<usize>();
     let mut total: usize = 0;
 
-    for (index, &count) in histogram.iter().enumerate().take(max_symbol) {
+    for (index, &count) in histogram.iter().enumerate().take(max_symbol + 1) {
         if count == len {
             return Err(Box::new(NormError::RunLengthEncoding(
                 "An rle compression should be more accurate",

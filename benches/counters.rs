@@ -18,6 +18,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         let mut ret = [0; 256];
         b.iter(|| count::multi_bucket_count_u8(&book1, &mut ret))
     });
+    #[cfg(feature = "rayon")]
     c.bench_function("rayon count", |b| {
         b.iter(|| {
             count::divide_and_conquer_count(

@@ -3,14 +3,23 @@ use std::{fs::File, io::Read};
 use tiny_bitstream::{BitDstream, BitEstream, BitReader};
 
 use crate::{
-    count::{
-        divide_and_conquer_count, multi_bucket_count_u8, simple_count_u8, simple_count_u8_inplace,
-    },
+    count::{multi_bucket_count_u8, simple_count_u8, simple_count_u8_inplace},
     normalization::normalization_with_compensation_binary_heap,
+    spreads::fse_spread_unsorted,
+    t_ans::{decode_tans, encode_tans},
 };
 
+const fn get_calgary_extract_histogram_1() -> (([usize; 256], usize), [u8; 50]) {
+    const SRC: [u8; 50] = [
+        37, 65, 32, 65, 98, 100, 111, 117, 44, 32, 73, 46, 69, 46, 10, 37, 65, 32, 87, 111, 110,
+        103, 44, 32, 75, 46, 89, 46, 10, 37, 68, 32, 49, 57, 56, 50, 10, 37, 84, 32, 65, 110, 97,
+        108, 121, 115, 105, 115, 32, 111,
+    ];
+    (simple_count_u8(&SRC), SRC)
+}
+
 #[test]
-fn fuzzingly_u8() {
+fn rans_fuzzing_u8() {
     let table_log = 13; // should be enough!
 
     let mut src = vec![];
@@ -40,8 +49,8 @@ fn fuzzingly_u8() {
 }
 
 #[test]
-fn fuzzingly_zero_u8() {
-    // Test rANS avec une source random, comme dans `fuzzingly_zero_u8` excepté
+fn rans_fuzzing_with_zeros_u8() {
+    // Test rANS avec une source random, comme dans `rans_fuzzing_u8` excepté
     // qu'on force quelques elements à 0.
     let table_log = 13; // should be enough!
 
@@ -79,6 +88,50 @@ fn fuzzingly_zero_u8() {
     println!("encoded size + pop information: {}", encoded_size);
     println!("src size: {}", src_size);
 }
+
+#[test]
+fn tans_book1_compression() {
+    /* Je récupère des inputs */
+    const TABLE_LOG: usize = 11;
+    let mut book1 = vec![];
+    File::open("./rsc/calgary_book1")
+        .expect("Cannot find calgary book1 ressource")
+        .read_to_end(&mut book1)
+        .expect("Unexpected fail to read calgary book1 ressource");
+    let mut hist = [0; 256];
+    // Limiter la taille de l'input pour débugger
+    // let book1 = book1[0..21].to_vec();
+
+    /* Je compresse */
+    let max_symbol = multi_bucket_count_u8(&book1, &mut hist);
+    let hist = normalization_with_compensation_binary_heap(&hist, TABLE_LOG, max_symbol).unwrap();
+    let spread = &fse_spread_unsorted(&hist, TABLE_LOG);
+    let mut state = 1 << TABLE_LOG;
+    let (book1_encoded, state) = encode_tans(&book1, &hist, spread, TABLE_LOG, &mut state);
+
+    println!("encoded stream size: {}", book1_encoded.len());
+    println!("spread len {}", spread.len());
+    /* Je decompresse */
+    let mut book1_decoded = vec![0; book1.len()];
+    decode_tans(
+        book1_encoded,
+        &hist,
+        spread,
+        TABLE_LOG,
+        state,
+        &mut book1_decoded,
+    );
+
+    // On s'attend à ce que ça soit pareil
+    assert_eq!(book1[..], book1_decoded);
+}
+
+/* ***************************************************************
+******************************************************************
+** Some tests of the normalization's methods
+**
+**
+*****************************************************************/
 
 #[test]
 fn test_fast_normalization_1() {
@@ -198,15 +251,6 @@ fn test_rans_homemade_1() {
     assert_eq!(src.to_vec(), res);
 }
 
-const fn get_calgary_extract_histogram_1() -> (([usize; 256], usize), [u8; 50]) {
-    const SRC: [u8; 50] = [
-        37, 65, 32, 65, 98, 100, 111, 117, 44, 32, 73, 46, 69, 46, 10, 37, 65, 32, 87, 111, 110,
-        103, 44, 32, 75, 46, 89, 46, 10, 37, 68, 32, 49, 57, 56, 50, 10, 37, 84, 32, 65, 110, 97,
-        108, 121, 115, 105, 115, 32, 111,
-    ];
-    (simple_count_u8(&SRC), SRC)
-}
-
 #[test]
 fn normalization_with_compensation_binary_heap_test() {
     use crate::normalization::normalization_with_compensation_binary_heap;
@@ -225,6 +269,9 @@ fn normalization_with_compensation_binary_heap_test() {
 
 #[test]
 fn test_counters_consistency() {
+    #[cfg(feature = "rayon")]
+    use crate::count::divide_and_conquer_count;
+
     let mut book1 = vec![];
     File::open("./rsc/calgary_book1")
         .expect("Cannot find calgary book1 ressource")
@@ -233,15 +280,24 @@ fn test_counters_consistency() {
     let mut hist1 = [0; 256];
     let max1 = simple_count_u8_inplace(&book1, &mut hist1);
     let (hist2, max2) = simple_count_u8(&book1);
+    #[cfg(feature = "rayon")]
     let (hist3, max3) =
         divide_and_conquer_count(&book1, std::thread::available_parallelism().unwrap().get());
     let mut hist4 = [0; 256];
     let max4 = multi_bucket_count_u8(&book1, &mut hist4);
     assert_eq!(hist1, hist2);
+    #[cfg(not(feature = "rayon"))]
+    assert_eq!(hist1, hist4);
+    #[cfg(feature = "rayon")]
     assert_eq!(hist2, hist3);
+    #[cfg(feature = "rayon")]
     assert_eq!(hist3, hist4);
     assert_eq!(max1, max2);
+    #[cfg(not(feature = "rayon"))]
+    assert_eq!(max1, max4);
+    #[cfg(feature = "rayon")]
     assert_eq!(max2, max3);
+    #[cfg(feature = "rayon")]
     assert_eq!(max3, max4);
 }
 /// Ce test est une vérification du compteur à plusieurs buckets. Il

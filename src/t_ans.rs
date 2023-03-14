@@ -7,11 +7,6 @@
 
 use tiny_bitstream::{BitDstream, BitEstream, BitReader, BitWriter};
 
-use crate::{
-    count::simple_count_u8_inplace, normalization::fast_normalization_1,
-    spreads::bit_reverse_spread,
-};
-
 /// Preparation de la table d'encodage pour tANS.
 ///
 /// # Algorithme
@@ -41,8 +36,7 @@ pub fn build_encode_table(
         nous décider à laisser on non cette condition dans tout les cas.
         if *c == 0 {
             delta_nb_bits[s] = ((table_log + 1) << 16) - table_size;
-        } else
-        */
+        } else */
         if *c == 1 {
             // Si le symbole n'apparait qu'une fois, il faudra pouvoir lire un
             // nombre de bit suffisant pour avoir un delta qui fasse toute la
@@ -80,6 +74,7 @@ pub fn encode_symbol(
     stream: &mut BitEstream,
 ) -> usize {
     let nb_bits_out = (state + delta_nb_bits[symbol]) >> 16;
+    //println!("write {} {}", nb_bits_out, state - (1 << 8));
     stream.unchecked_write(state, nb_bits_out as u8);
     table[((state >> nb_bits_out) as i32 + starts[symbol]) as usize]
 }
@@ -92,7 +87,11 @@ pub fn decode_symbol(
     state: usize,
     spread: &[u8],
 ) -> (usize, u8) {
-    let bits = dstream.read(nb_bits[state] as u8).unwrap();
+    //print!("read {} {}", nb_bits[state], state);
+    let bits = dstream
+        .read(nb_bits[state] as u8)
+        .unwrap_or_else(|_| panic!("Expected to be able to read {} bytes", nb_bits[state]));
+    // println!("{bits}");
     let ret = new_states[state] + bits;
     (ret, spread[state])
 }
@@ -139,32 +138,6 @@ pub fn build_decode_table(
     (nb_bits, new_state)
 }
 
-pub fn encode_1(src: &[u8], table_log: usize) -> (Vec<u8>, usize, usize) {
-    let mut histogram = [0; 256];
-    simple_count_u8_inplace(src, &mut histogram);
-    let histogram = fast_normalization_1(&histogram, table_log).unwrap();
-    let spread = bit_reverse_spread(&histogram, table_log);
-    // Récupère le matériel pour encoder une source
-    let (table, delta_nb_bits, starts) = build_encode_table(&histogram, table_log, &spread);
-    let mut estream = BitEstream::new();
-    let mut state = 1 << table_log;
-    src.iter().for_each(|&symbol| {
-        state = encode_symbol(
-            &delta_nb_bits,
-            &starts,
-            &table,
-            state,
-            symbol as usize,
-            &mut estream,
-        )
-    });
-    (
-        estream.try_into().unwrap(),
-        state - (1 << table_log),
-        src.len(),
-    )
-}
-
 pub fn encode_tans(
     src: &[u8],
     histogram: &[usize],
@@ -172,10 +145,14 @@ pub fn encode_tans(
     table_log: usize,
     state: &mut usize,
 ) -> (Vec<u8>, usize) {
+    assert!(
+        *state >= (1 << table_log),
+        "The state has to be in [1^table_log..2 x 1^table_log - 1]"
+    );
     // Récupère le matériel pour encoder une source
     let (table, delta_nb_bits, starts) = build_encode_table(histogram, table_log, spread);
     let mut estream = BitEstream::new();
-    //let mut state = 1 << table_log;
+
     src.iter().for_each(|&symbol| {
         *state = encode_symbol(
             &delta_nb_bits,
@@ -189,33 +166,19 @@ pub fn encode_tans(
     (estream.try_into().unwrap(), *state - (1 << table_log))
 }
 
-pub fn decode_1(src: Vec<u8>, table_log: usize, mut state: usize, buffer: &mut [u8]) {
-    // La première étape est la construction de l'histogramme, il s'agit d'une
-    // structure de la taille du nombre de symboles (255 si le symbole est sur 1 octet).
-    // où sont répertoriés le nombre d'apparition du symbole dans la source donnée.
-    //
-    // Dans le cas de tANS, cet histogramme permet de construire un table optimal en
-    // fonction du nombre de fois où le symbole apparait. Par exemple, si un symbole
-    // apparait cinq fois sur mille, le nombre de bit nécessaire pour l'encoder de la
-    // façon la plus petite possible est de `-log(5/1000)` (formule de Shannon),
-    // soit `7.643`.
-    // En pratique, un demi bit n'existe pas, lors de la construction de la table, on
-    // deffinit un seuil à partir duquel on ecrira 8 bit au lieu de 7.
-    let mut histogram = [0; 256];
-    simple_count_u8_inplace(&src, &mut histogram);
-    // Normalisation, la somme de l'histogramme doit être égale à 2^table_log.
-    let histogram = fast_normalization_1(&histogram, table_log).unwrap();
-
-    // Le spread doit être identique pour la compression et la décompression.
-    // Sinon la table constuite plus tard sera différente.
-    let spread = bit_reverse_spread(&histogram, table_log);
-
-    let (nb_bits, new_states) = build_decode_table(table_log, &spread, &histogram);
+pub fn decode_tans(
+    src: Vec<u8>,
+    histogram: &[usize],
+    spread: &[u8],
+    table_log: usize,
+    mut state: usize,
+    dst_buffer: &mut [u8],
+) {
+    let (nb_bits, new_states) = build_decode_table(table_log, spread, histogram);
     let mut dstream = BitDstream::try_from(src).unwrap();
     dstream.read(1).unwrap(); // Read mark
-    buffer.iter_mut().for_each(|byte| {
-        let (new_state, symbol) =
-            decode_symbol(&mut dstream, &nb_bits, &new_states, state, &spread);
+    dst_buffer.iter_mut().rev().for_each(|byte| {
+        let (new_state, symbol) = decode_symbol(&mut dstream, &nb_bits, &new_states, state, spread);
         *byte = symbol;
         state = new_state;
     });

@@ -30,7 +30,10 @@ harness = false
 name = "spreads"
 harness = false
 
+[[bench]]
+name = "lzss"
+harness = false
+
 [features]
-default = ["rayon", "checks"]
 rayon = [ "dep:rayon" ]
 checks = []

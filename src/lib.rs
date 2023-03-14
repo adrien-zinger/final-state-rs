@@ -1,5 +1,5 @@
-//#![feature(map_first_last)]
 pub mod count;
+pub mod lzss;
 pub mod normalization;
 pub mod r_ans;
 pub mod spreads;

@@ -22,16 +22,6 @@ fn criterion_benchmark(c: &mut Criterion) {
         b.iter(|| fast_normalization_1(&histogram, 10))
     });
 
-    // TODO: fix, that normalization should have a max_symbol threshold
-    //let mut hist1 = histogram.to_vec();
-    //let mut hist2 = histogram.to_vec();
-    //c.bench_function("slow derivative normalization", |b| {
-    //    b.iter(|| derivative_normalization(&mut hist1, 15, 255))
-    //});
-    //c.bench_function("fast derivative normalization", |b| {
-    //    b.iter(|| derivative_normalization_fast(&mut hist2, 15))
-    //});
-
     let hist3 = histogram.to_vec();
     c.bench_function("normalization with compensation (binary_heap)", |b| {
         b.iter(|| normalization_with_compensation_binary_heap(&hist3, 8, max_symbol))
