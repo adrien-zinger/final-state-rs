@@ -18,7 +18,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     });
 
     c.bench_function("lzss encoding before optimizations", |b| {
-        b.iter(|| encode_lzss_no_windows_u8_simple(book1))
+        b.iter(|| encode_lzw_no_windows_u8_simple(book1))
     });
 }
 
