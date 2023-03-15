@@ -94,18 +94,9 @@ pub fn encode_lzw_no_windows_u8_simple(src: &[u8]) -> Vec<u8> {
     let mut ret: Vec<u8> = vec![];
     ret.append(&mut src[..4].to_vec());
 
-    /// Représentation d'une paire taille-index, nous aurions pu nous
-    /// en passer et utiliser un simple tuple. Seulement ajouter cette
-    /// structure augmente la clarté du code. De plus, elle n'impacte en
-    /// rien les performances.
-    struct Pair {
-        index: usize,
-        len: u32,
-    }
-
     while index < src.len() {
         let mut s = 0;
-        let mut repetition = Pair { index: 0, len: 0 };
+        let mut repetition = Pair::default();
         while s < index {
             if src[s] == src[index] {
                 let len = while_equal_simple(src, s, index);
@@ -195,72 +186,54 @@ pub fn encode_lzss_no_windows_u8(src: &[u8]) -> Vec<u8> {
     let mut index = 4;
     let mut ret: Vec<u8> = vec![];
     ret.append(&mut src[..4].to_vec());
-    const LEN_MASK: u32 = 1 << 15;
     while index < src.len() {
         let mut s = 0;
-        let tmp = index;
+        let mut repetition = Pair::default();
+
         while s + 4 < index {
             if src[s] == src[index] {
                 let len = while_equal(src, s, index);
-                if (4..32768).contains(&len) {
-                    let bits: u32 = ((len | LEN_MASK) << 16) + s as u32;
-                    ret.append(&mut bits.to_be_bytes().to_vec());
-                    index += len as usize;
-                    if index == src.len() {
-                        return ret;
-                    }
-                    break;
+                if (5..32768).contains(&len) && repetition.len < len {
+                    repetition.len = len;
+                    repetition.index = s;
                 }
             }
 
             if src[s + 1] == src[index] {
                 let len = while_equal(src, s + 1, index);
-                if (4..32768).contains(&len) {
-                    //println!("push len {len} at {}", s + 1);
-                    let bits: u32 = ((len | LEN_MASK) << 16) + s as u32 + 1;
-                    ret.append(&mut bits.to_be_bytes().to_vec());
-                    index += len as usize;
-                    if index == src.len() {
-                        return ret;
-                    }
-                    break;
+                if (5..32768).contains(&len) && repetition.len < len {
+                    repetition.len = len;
+                    repetition.index = s + 1;
                 }
             }
 
             if src[s + 2] == src[index] {
                 let len = while_equal(src, s + 2, index);
-
-                if (4..32768).contains(&len) {
-                    //println!("push len {len} at {}", s + 2);
-                    let bits: u32 = ((len | LEN_MASK) << 16) + s as u32 + 2;
-                    ret.append(&mut bits.to_be_bytes().to_vec());
-                    index += len as usize;
-                    if index == src.len() {
-                        return ret;
-                    }
-                    break;
+                if (5..32768).contains(&len) && repetition.len < len {
+                    repetition.len = len;
+                    repetition.index = s + 2;
                 }
             }
 
             if src[s + 3] == src[index] {
                 let len = while_equal(src, s + 3, index);
-                if (4..32768).contains(&len) {
-                    let bits: u32 = ((len | LEN_MASK) << 16) + s as u32 + 3;
-                    ret.append(&mut bits.to_be_bytes().to_vec());
-                    index += len as usize;
-                    if index == src.len() {
-                        return ret;
-                    }
-                    break;
+                if (5..32768).contains(&len) && repetition.len < len {
+                    repetition.len = len;
+                    repetition.index = s + 3;
                 }
             }
 
             s += 4;
         }
 
-        if tmp == index {
+        if repetition.len == 0 {
             ret.push(src[index]);
-            index += 1
+            index += 1;
+        } else {
+            const FLAG_MASK: u32 = 1 << 15;
+            let bits: u32 = ((repetition.len | FLAG_MASK) << 16) + repetition.index as u32;
+            ret.append(&mut bits.to_be_bytes().to_vec());
+            index += repetition.len as usize;
         }
     }
     ret
@@ -298,7 +271,6 @@ fn while_equal_functions_consistency() {
     assert_eq!(len1, len2);
 }
 
-/*
 #[test]
 fn lzss_optimizations_functions_consistency() {
     use std::fs::File;
@@ -317,7 +289,7 @@ fn lzss_optimizations_functions_consistency() {
 
     assert_eq!(encoded1.len(), encoded2.len());
 }
-*/
+
 pub fn encode_lzss_with_windows_u8(src: &[u8], windows_size: usize) -> Vec<u8> {
     // assert de la taille de la fenetre < 32768
     let mut index = 4;
@@ -374,6 +346,25 @@ pub fn decode_lzw_u8(src: &[u8]) -> Vec<u8> {
         }
     }
     ret
+}
+
+/* *************************************************************************
+_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-
+
+    Annexe contenant quelques tests suplémentaires ainsi que des déclarations
+    pratique pour notre présentation.
+
+_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-
+ ************************************************************************  */
+
+/// Représentation d'une paire taille-index, nous aurions pu nous
+/// en passer et utiliser un simple tuple. Seulement ajouter cette
+/// structure augmente la clarté du code. De plus, elle n'impacte en
+/// rien les performances.
+#[derive(Default)]
+struct Pair {
+    index: usize,
+    len: u32,
 }
 
 #[test]
