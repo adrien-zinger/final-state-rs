@@ -74,7 +74,6 @@ pub fn encode_symbol(
     stream: &mut BitEstream,
 ) -> usize {
     let nb_bits_out = (state + delta_nb_bits[symbol]) >> 16;
-    //println!("write {} {}", nb_bits_out, state - (1 << 8));
     stream.unchecked_write(state, nb_bits_out as u8);
     table[((state >> nb_bits_out) as i32 + starts[symbol]) as usize]
 }
@@ -87,11 +86,10 @@ pub fn decode_symbol(
     state: usize,
     spread: &[u8],
 ) -> (usize, u8) {
-    //print!("read {} {}", nb_bits[state], state);
+    // Panic if we try to look further than the length of the stream
     let bits = dstream
         .read(nb_bits[state] as u8)
         .unwrap_or_else(|_| panic!("Expected to be able to read {} bytes", nb_bits[state]));
-    // println!("{bits}");
     let ret = new_states[state] + bits;
     (ret, spread[state])
 }
