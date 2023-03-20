@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "portable_simd", feature(portable_simd))]
+
 pub mod count;
 pub mod lzss;
 pub mod normalization;

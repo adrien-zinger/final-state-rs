@@ -1,3 +1,8 @@
+//! Implémentation de l'algorithme LZSS dans `final_state_rs`. Cette partie
+//! du programme est implémentée avec un style literate programming.
+//!
+//! Autheur: Adrien Zinger <zinger.ad@gmail.com>
+
 // Dans le cadre de l'implémentation d'une méthode de compréssion dérivée de
 // LZW, nous nous interresserons particulièrement à LZSS. Ou en tout cas, dans
 // ce fichier.
@@ -56,21 +61,19 @@
 /// tout algorithme ne respecte pas cette condition.
 ///
 /// ```
-/// use final_state_rs::lzss::encode_lzw_no_windows_u8_simple;
-/// use final_state_rs::lzss::decode_lzw_u8;
+/// use final_state_rs::lzss::*;
 /// use std::{fs::File, io::Read};
 ///
-/// let mut book1 = vec![];
+/// let mut book1 = [0; 4000];
 /// File::open("./rsc/calgary_book1")
 ///     .expect("Cannot find calgary book1 ressource")
-///     .read_to_end(&mut book1)
+///     .read(&mut book1)
 ///     .expect("Unexpected fail to read calgary book1 ressource");
-/// book1 = book1[0..4000].to_vec();
 ///
-/// let encoded = encode_lzw_no_windows_u8_simple(&book1);
+/// let encoded = encode_lzw_no_windows_u8(&book1);
 /// let decoded = decode_lzw_u8(&encoded);
 ///
-/// assert_eq!(book1, decoded);
+/// assert_eq!(book1.to_vec(), decoded);
 /// assert!(encoded.len() <= decoded.len());
 /// ```
 ///
@@ -80,29 +83,42 @@
 /// avec l'alphabet latin.
 ///
 /// ```
-/// use final_state_rs::lzss::encode_lzw_no_windows_u8_simple;
-/// use final_state_rs::lzss::decode_lzw_u8;
+/// use final_state_rs::lzss::*;
 ///
 /// let alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZA".as_bytes();
-/// let encoded = encode_lzw_no_windows_u8_simple(&alphabet);
+/// let encoded = encode_lzw_no_windows_u8(&alphabet);
 /// let decoded = decode_lzw_u8(&encoded);
 /// assert_eq!(alphabet, encoded);
 /// assert_eq!(decoded, encoded);
 /// ```
 pub fn encode_lzw_no_windows_u8(src: &[u8]) -> Vec<u8> {
+    internal_encode_lzw_no_windows_u8::<Original>(src)
+}
+
+/// Implémentation générique de lzw sans fenêtre. Utilisé par
+/// `encode_lzw_no_windows_u8` et `encode_lzw_no_windows_u8_fast` décrit plus
+/// loin. Élimine de la duplication de code par pur principe.
+//
+// Nous reviendrons rapidement sur les raisons de cette généricité, pour le
+// moment vous pouvez faire abstraction du template.
+fn internal_encode_lzw_no_windows_u8<T: WhileEqual>(src: &[u8]) -> Vec<u8> {
     let mut index = 4;
     let mut ret: Vec<u8> = vec![];
     ret.append(&mut src[..4].to_vec());
 
-    while index < src.len() {
+    while index < src.len() - 4 {
         let mut s = 0;
         let mut repetition = Pair::default();
 
-        // Recherche de la plus longue séquence commune.
-        while s < index {
+        // Recherche de la plus longue séquence dans l'interval
+        // [s; index - 4]. Puisque nous savons qu'un charactère identique
+        // en `index - 4` donnera une taille maximum de 4, nous pouvons
+        // dors et déjà éviter un encodage superflue.
+        while s < index - 4 {
             if src[s] == src[index] {
-                let len = while_equal(src, s, index);
-
+                // Si src[s] == src[index], nous pouvons commencer à rechercher
+                // la taille de la séquence commune à partir des deux indexes.
+                let len = T::while_equal(src, s, index);
                 if (5..32768).contains(&len) && repetition.len < len {
                     repetition.len = len;
                     repetition.index = s;
@@ -111,7 +127,7 @@ pub fn encode_lzw_no_windows_u8(src: &[u8]) -> Vec<u8> {
             s += 1;
         }
         if repetition.len == 0 {
-            // Je n'ai pas trouvé une répétition,
+            // Je n'ai trouvé aucune répétition,
             // donc j'écris le symbole et j'avance de 1.
             ret.push(src[index]);
             index += 1;
@@ -125,6 +141,12 @@ pub fn encode_lzw_no_windows_u8(src: &[u8]) -> Vec<u8> {
             ret.append(&mut bits.to_be_bytes().to_vec());
             index += repetition.len as usize;
         }
+    }
+    // Ecrit les dernier bits restants dans le cas où index est
+    // dans l'interval [len - 4; len[
+    if index < src.len() {
+        let diff = src.len() - index;
+        ret.append(&mut src[src.len() - diff..].to_vec());
     }
     ret
 }
@@ -162,61 +184,15 @@ pub fn encode_lzw_no_windows_u8(src: &[u8]) -> Vec<u8> {
 // fonction sur laquelle nous nous pencherons compte le nombre de carractères
 // identique à partir de deux indexes dans une source.
 
-/// La fonction `while_equal` prend comme arguments une source et deux indexes.
-/// Elle calculera le nombre de carractères identiques à partir de ces deux
-/// indexes dans la limite suivante min(index - from, src.len - index).
-///  
-/// Dans le context présent, il est impératif que le premier index soit
-/// inférieur au second, et ces deux index doivent être inférieur à la taille de
-/// la source. De plus, j'ai choisi arbitrairement d'appeler cette fonction
-/// uniquement lorsque je constate que deux éléments dans la source, à la
-/// position `from` et `index`, sont égaux. Il convient donc de vérifier s'il
-/// sont bien égaux avant de poursuivre la procédure.
+/// Pour éviter trop de duplication de code entre une version optimisée et une version
+/// originale des algorithmes, je définirai le trait suivant dont je préciserais les implémentations
+/// pour des structures dédiées uniquement à cette fonction `while_equal`.
 ///
-/// La fonction est triviale et je doute qu'il faille s'attarder plus longtemps
-/// dessus.
-pub fn while_equal(src: &[u8], from: usize, index: usize) -> u32 {
-    assert!(from < index);
-    assert!(index < src.len());
-    assert_eq!(src[from], src[index]);
-
-    let mut s = from + 1;
-    let mut i = index + 1;
-
-    // Loop while equals
-    while s < index && i < src.len() && src[s] == src[i] {
-        s += 1;
-        i += 1;
-    }
-    (s - from) as u32
-}
-
-// Dans le code précédant, la boucle de test peut tout à fait être divisé en 4.
-// Ce que nous allons faire, en prenant soint de vérifier la consistance entre
-// l'implémentation triviale et rapide à l'aide d'un jeu de tests. Nous pourrons
-// vérifier si nous obtenons oui ou non de meilleures performances par la suite.
-
-/// Cette implémentation simétrique à `while_equal`.
-///
-// Pour tenter de prouver une telle simétrie, il est important de définir des
-// tests tels que ceux présents dans la figure suivante. Cependant nous
-// pourrions nous en convaincre en parcourant le code attentivement.
-// Premièrement, nous avons modifié le pas de la boucle principale initiallement
-// de 1 à 4. Chaque test de i à i + 3 sont réalisés en utilisant de nouvelles
-// variables locales. Un processeur OoO peut ainsi procéder parrallèlement
-// chaque test. L'execution parrallèle s'arrête au moment de l'écriture de s,
-// car cette opération doit respecter un ordre définis par le processeur
-// lorsqu'il est sur un seul thread. De plus, l'union peut aussi se faire lors
-// du break, car le branchement respecte les mêmes conditions que la variable s
-// dans ce contexte.
-//
-// Dans un deuxieme temps, nous comptons les derniers caractères oublié dans les
-// intervals [s - 4, index]  [i - 4, src.len()]. Ces derniers caractère ne
-// pouvant pas être divisé en 4. Ensuite, ce serait une erreur de tenter de
-// diviser en 3, ou 2 ces tests, l'ajout de branchement serait trop couteux par
-// rapport au gain.
+/// Des accès publiques sont définis comme suit.
 ///
 /// ```
+/// use final_state_rs::lzss::*;
+///
 /// let src = "ABCDFGHABCDEFGHI".as_bytes();
 /// println!("src: {:?}", src);
 /// let len1 = while_equal_fast(src, 0, 7);
@@ -228,48 +204,112 @@ pub fn while_equal(src: &[u8], from: usize, index: usize) -> u32 {
 /// let len2 = while_equal(src, 0, 4);
 /// assert_eq!(len1, len2);
 /// ```
-pub fn while_equal_fast(src: &[u8], from: usize, index: usize) -> u32 {
-    let mut s = from + 1;
-    let mut i = index + 1;
-
-    // Split in 4 the tests, each block will be done in parrallel by an OoO
-    // processor.
-    while s + 4 < index && i + 4 < src.len() {
-        let mut b1 = false;
-        if src[s] == src[i] {
-            b1 = true;
-        }
-        let mut b2 = false;
-        if src[s + 1] == src[i + 1] {
-            b2 = true;
-        }
-        let mut b3 = false;
-        if src[s + 2] == src[i + 2] {
-            b3 = true;
-        }
-        let mut b4 = false;
-        if src[s + 3] == src[i + 3] {
-            b4 = true;
-        }
-        if b1 && b2 && b3 && b4 {
-            s += 4;
-            i += 4;
-        } else {
-            break;
-        }
-    }
-
-    // Fix the last bytes unchecked
-    while s < index && i < src.len() && src[s] == src[i] {
-        s += 1;
-        i += 1;
-    }
-
-    (s - from) as u32
+trait WhileEqual {
+    /// La fonction `while_equal` prend comme arguments une source et deux indexes.
+    /// Elle calculera le nombre de carractères identiques à partir de ces deux
+    /// indexes dans la limite suivante min(index - from, src.len - index).
+    fn while_equal(src: &[u8], from: usize, index: usize) -> u32;
 }
 
-// Le changement ce dessus peut être réitéré sur la recherche de symbole
-// similaire. Toutefois, je considère important de préciser que de tels
+impl WhileEqual for Original {
+    // Dans le context présent, il est impératif que le premier indexe soit
+    // inférieur au second, et ces deux index doivent être inférieur à la taille de
+    // la source. De plus, j'ai choisi arbitrairement d'appeler cette fonction
+    // uniquement lorsque je constate que deux éléments dans la source, à la
+    // position `from` et `index`, sont égaux. Il convient donc de vérifier s'il
+    // sont bien égaux avant de poursuivre la procédure.
+    //
+    // La fonction est triviale et je doute qu'il faille s'attarder plus longtemps
+    // dessus.
+    fn while_equal(src: &[u8], from: usize, index: usize) -> u32 {
+        assert!(from < index);
+        assert!(index < src.len());
+        assert_eq!(src[from], src[index]);
+
+        let mut s = from + 1;
+        let mut i = index + 1;
+
+        // Loop while equals
+        while s < index && i < src.len() && src[s] == src[i] {
+            s += 1;
+            i += 1;
+        }
+        (s - from) as u32
+    }
+}
+
+// Dans le code précédant, la boucle de test peut tout à fait être divisé en 4.
+// Ce que nous allons faire, en prenant soint de vérifier la consistance entre
+// l'implémentation triviale et rapide à l'aide d'un jeu de tests. Nous pourrons
+// vérifier si nous obtenons oui ou non de meilleures performances par la suite.
+
+impl WhileEqual for Fast {
+    /// Cette implémentation est simétrique à sa version original et optimisée
+    /// pour les processeurs OoO.
+    ///
+    // Pour tenter de prouver une telle simétrie, il est important de définir
+    // des tests tels que ceux présents dans la figure suivante. Cependant nous
+    // pourrions nous en convaincre en parcourant le code attentivement.
+    // Premièrement, nous avons modifié le pas de la boucle principale
+    // initiallement de 1 à 4. Chaque test de i à i + 3 sont réalisés en
+    // utilisant de nouvelles variables locales. Un processeur OoO peut ainsi
+    // procéder parrallèlement chaque test. L'execution parrallèle s'arrête au
+    // moment de l'écriture de s, car cette opération doit respecter un ordre
+    // définis par le processeur lorsqu'il est sur un seul thread. De plus,
+    // l'union peut aussi se faire lors du break, car le branchement respecte
+    // les mêmes conditions que la variable s dans ce contexte.
+    //
+    // Dans un deuxieme temps, nous comptons les derniers caractères oublié dans
+    // les intervals [s - 4, index]  [i - 4, src.len()]. Ces derniers caractère
+    // ne pouvant pas être divisé en 4. Ensuite, ce serait une erreur de tenter
+    // de diviser en 3, ou 2 ces tests, l'ajout de branchement serait trop
+    // couteux par rapport au gain.
+    fn while_equal(src: &[u8], from: usize, index: usize) -> u32 {
+        assert!(from < index);
+        assert!(index < src.len());
+        assert_eq!(src[from], src[index]);
+
+        let mut s = from + 1;
+        let mut i = index + 1;
+
+        // Split in 4 the tests, each block will be done in parrallel by an OoO
+        // processor.
+        while s + 4 < index && i + 4 < src.len() {
+            let mut b1 = false;
+            if src[s] == src[i] {
+                b1 = true;
+            }
+            let mut b2 = false;
+            if src[s + 1] == src[i + 1] {
+                b2 = true;
+            }
+            let mut b3 = false;
+            if src[s + 2] == src[i + 2] {
+                b3 = true;
+            }
+            let mut b4 = false;
+            if src[s + 3] == src[i + 3] {
+                b4 = true;
+            }
+            if b1 && b2 && b3 && b4 {
+                s += 4;
+                i += 4;
+            } else {
+                break;
+            }
+        }
+
+        // Fix the last bytes unchecked
+        while s < index && i < src.len() && src[s] == src[i] {
+            s += 1;
+            i += 1;
+        }
+
+        (s - from) as u32
+    }
+}
+
+// À ce stade de notre progression, je considère important de préciser que de tels
 // améliorations sont extrèmement dépendante du système dans lequel elles sont
 // appliqué. Par exemple, si mon processeur est faible, très demandé par
 // d'autres procéssus, il est tout à fait probable que les deux algorithmes
@@ -278,21 +318,144 @@ pub fn while_equal_fast(src: &[u8], from: usize, index: usize) -> u32 {
 // C'est à ce moment qu'interviennent quelques heuristiques égocentriques que
 // je n'incluerai pas dans directement dans cette bibliothèque.
 
-// Les résultats sont acceptables, relativement au
+// Les résultats sont acceptables et concorde avec nos déductions.
+// Nous pouvons à présent réaliser une nouvelle implémentation en tout point
+// symétrique utilisant cette nouvelle méthode. En quelques tests de vitesses
+// nous montreront un gain. Il semble également qu'essayer d'obtimiser plus
+// encore avec cette strategie serait contre productif. Je fermerai donc
+// là le sujet OoO.
 
+// Cependant, l'instabilité de ce gain me laisse encore dans le doute. De plus,
+// les performances restent très proche l'une de l'autre. Pour aller plus loin,
+// je souhaiterai proposer une nouvelle approche plus ou moins similaire.
+
+impl WhileEqual for Faster {
+    // Ici, nous utiliserons l'arithmetique des pointeurs pour nous déplacer
+    // sur la source. Cette opération est considérée à raison comme étant `unsafe`
+    // par Rust. Mais un développeur aguéris constatera que toute lecture de la
+    // mémoire sera faite après des tests qui validerons si la zone est occupée par
+    // un élément que nous recherchons.
+    //
+    // Nous transformerons un pointeur sur octet en un pointeur sur 32 ou 64 bits
+    // selon l'architecture dont dispose l'utilisateur. Nous pourrons dont tester,
+    // non pas 4 bytes simultanément, mais 8, dans le meilleur des cas. Et ceci
+    // sans parraléliser astucieusement notre code.
+    fn while_equal(src: &[u8], from: usize, index: usize) -> u32 {
+        assert!(from < index);
+        assert!(index < src.len());
+        assert!(src.len() > BYTES_LEN + 1);
+        assert_eq!(src[from], src[index]);
+
+        let mut s = from + 1;
+        let mut i = index + 1;
+
+        // Nous récupérons le nombre d'octets pour chaque étape.
+        const BYTES_LEN: usize = usize::BITS as usize / 8;
+
+        let mut ps = unsafe { src.as_ptr().add(s) as *const usize };
+        let mut is = unsafe { src.as_ptr().add(i) as *const usize };
+
+        // s + BYTES_LEN < index && i + BYTES_LEN < src.len(): verification en
+        // premier lieu que nous n'empiétons pas sur la partie droite de la
+        // source. Puis en second lieu que nos déréferencements ce font bien sur
+        // un interval où nous avons notre source.
+        while s + BYTES_LEN < index && i + BYTES_LEN < src.len() && unsafe { *ps == *is } {
+            unsafe {
+                ps = ps.add(BYTES_LEN);
+                is = is.add(BYTES_LEN);
+            }
+            s += BYTES_LEN;
+            i += BYTES_LEN;
+        }
+
+        // Fix the last bytes unchecked
+        while s < index && i < src.len() && src[s] == src[i] {
+            s += 1;
+            i += 1;
+        }
+
+        (s - from) as u32
+    }
+}
+
+// Avant de passer à la suite, deffinissons des accès à nos fonction et remarquons
+// les différences de performance. Il semble que `encode_lzw_no_windows_u8_faster`
+// est 25% plus rapide sur ma machine.
+
+/// Do the same thing as `encode_lzw_no_windows_u8` but use `while_equal_fast`
+/// which is optimized for OoO processor.
 pub fn encode_lzw_no_windows_u8_fast(src: &[u8]) -> Vec<u8> {
-    let mut index = 4;
-    let mut ret: Vec<u8> = vec![];
-    ret.append(&mut src[..4].to_vec());
+    internal_encode_lzw_no_windows_u8::<Fast>(src)
+}
 
-    while index < src.len() {
-        let mut s = 0;
+/// Do the same thing as `encode_lzw_no_windows_u8` but use `while_equal_faster`
+/// which has a better optimization.
+pub fn encode_lzw_no_windows_u8_faster(src: &[u8]) -> Vec<u8> {
+    internal_encode_lzw_no_windows_u8::<Faster>(src)
+}
+
+// D'autre optimisations, plus spécifiques à nos architectures peuvent être
+// possible et je me réserve un temps pour les étudier plus tard.
+// TODO: essayer des solutions telles que __mm_cmpestrc pour tester des
+//       chaines plus longues.
+
+// Nous pouvons maintenant passer à la suite de notre chapitre qui est celle de
+// l'implémentation de lzss. Je vous pris de pardonner mon aproximation de lzw
+// précédemment, car ce n'est pas exactement l'algorithme qui peut être décrit
+// dans d'autres oeuvres. En effet, certaines caractéristiques tels que la
+// comparaison des tailles de la sous séquence et de la pair index-taille, ainsi
+// que l'écriture de cette paire avec un masque d'un bit sur le bit le plus
+// élevé, sont déjà les différences notable que l'ont peut trouver entre lz77 et
+// lzss. En réalité, il ne nous manque plus qu'implémenter le concepte de
+// fenêtre glissante.
+//
+// Les différents algorithmes dérivant de lzw possède l'élément commun qu'ils
+// cherchent à réduire le temps de calcul en diminuant la complexité temporel de
+// son parent. Pour celà, ils usent de plusieurs technique étant soient
+// coûteuses en mémoire, soit coûteuse en tant que résultat final. Dans le cas
+// de lzss, c'est en approximant le résultat que nous réussissont à rendre la
+// compléxité quadratique linéaire. L'approximation dégradant le résutat final,
+// la sortie compressée de lzss sera nécéssairement de taille supérieure ou
+// égale à celle de lzw.
+
+#[test]
+fn compare_lzw_and_lzss() {
+    use std::{fs::File, io::Read};
+    let mut book1 = [0; 10000];
+    let _ = File::open("./rsc/calgary_book1")
+        .expect("Cannot find calgary book1 ressource")
+        .read(&mut book1)
+        .expect("Unexpected fail to read calgary book1 ressource");
+    let encoded1 = encode_lzw_no_windows_u8_fast(&book1);
+    let encoded2 = encode_lzss_u8(&book1, 2000);
+    assert!(encoded1.len() <= encoded2.len());
+    // Dans ce cas précisement, lzw à de meilleures performances.
+    assert!(encoded1.len() < encoded2.len());
+}
+
+/// LZSS variation of LZW algorithm with a windows size.
+pub fn encode_lzss_u8(src: &[u8], windows_size: usize) -> Vec<u8> {
+    internal_encode_lzss_u8::<Original>(src, windows_size)
+}
+
+fn internal_encode_lzss_u8<T: WhileEqual>(src: &[u8], windows_size: usize) -> Vec<u8> {
+    assert!(windows_size < src.len());
+
+    // On peut découper le calcule de la sortie en 2 algorithmes. La première
+    // partie pour les indexes <= à windows_size, et la deuxième pour les
+    // indexes >=. Ce découpage nous permet d'éviter les branchements de
+    // vérification si windows_size < index.
+    let mut ret = internal_encode_lzw_no_windows_u8::<T>(&src[..=windows_size]);
+
+    let mut index = windows_size + 1;
+    while index < src.len() - 4 {
+        let mut s = index - windows_size;
         let mut repetition = Pair::default();
 
-        // Recherche de la plus longue séquence commune.
-        while s < index {
+        // Recherche de la plus longue séquence.
+        while s < index - 4 {
             if src[s] == src[index] {
-                let len = while_equal_fast(src, s, index);
+                let len = T::while_equal(src, s, index);
                 if (5..32768).contains(&len) && repetition.len < len {
                     repetition.len = len;
                     repetition.index = s;
@@ -301,7 +464,7 @@ pub fn encode_lzw_no_windows_u8_fast(src: &[u8]) -> Vec<u8> {
             s += 1;
         }
         if repetition.len == 0 {
-            // Je n'ai pas trouvé une répétition,
+            // Je n'ai trouvé aucune répétition,
             // donc j'écris le symbole et j'avance de 1.
             ret.push(src[index]);
             index += 1;
@@ -316,73 +479,25 @@ pub fn encode_lzw_no_windows_u8_fast(src: &[u8]) -> Vec<u8> {
             index += repetition.len as usize;
         }
     }
-    ret
-}
-
-#[test]
-fn lzss_optimizations_functions_consistency() {
-    use std::fs::File;
-    use std::io::Read;
-
-    let mut book1 = vec![];
-    File::open("./rsc/calgary_book1")
-        .expect("Cannot find calgary book1 ressource")
-        .read_to_end(&mut book1)
-        .expect("Unexpected fail to read calgary book1 ressource");
-
-    let src = &book1[0..4000];
-
-    let encoded1 = encode_lzw_no_windows_u8_fast(src);
-    let encoded2 = encode_lzw_no_windows_u8(src);
-
-    assert_eq!(encoded1.len(), encoded2.len());
-}
-
-pub fn encode_lzss_with_windows_u8(src: &[u8], windows_size: usize) -> Vec<u8> {
-    // assert de la taille de la fenetre < 32768
-    let mut index = 4;
-    let mut ret: Vec<u8> = vec![];
-    ret.append(&mut src[..4].to_vec());
-    while index < src.len() {
-        let mut s = index.saturating_sub(windows_size);
-        while s < index {
-            if src[s] == src[index] {
-                let from = s;
-                let mut tmp_index = index + 1;
-                s += 1;
-                while s + 1 < index && tmp_index + 1 < src.len() && src[s + 1] == src[tmp_index + 1]
-                {
-                    s += 1;
-                    tmp_index += 1;
-                }
-                let len = (s - from + 1) as u32;
-                if (4..32768).contains(&len) {
-                    // ajuster ce test avec la taille de la fenetre.
-                    let bits: u32 = ((len << 16) | 1 << 15) + from as u32;
-                    ret.append(&mut bits.to_be_bytes().to_vec());
-                    index = tmp_index + 1;
-                    if index == src.len() {
-                        return ret;
-                    }
-                    break;
-                }
-            } else {
-                s += 1;
-            }
-        }
-        ret.push(src[index]);
-        index += 1
+    // Ecrit les dernier bits restants dans le cas où index est
+    // dans l'interval [len - 4; len[
+    if index < src.len() {
+        let diff = src.len() - index;
+        ret.append(&mut src[src.len() - diff..].to_vec());
     }
     ret
 }
 
+/// Décode n'importe quel source encodée antérieurement par une fonction de ce
+/// fichier.
 pub fn decode_lzw_u8(src: &[u8]) -> Vec<u8> {
     let mut ret: Vec<u8> = vec![];
     let mut it = src.iter();
     const FLAG_BIT: u8 = 1 << 7;
+    const FLAG_MASK: u8 = FLAG_BIT - 1;
     while let Some(symbol) = it.next() {
         if *symbol >= FLAG_BIT {
-            let hi_bits_len = ((*symbol & 0b01111111) as u16) << 8;
+            let hi_bits_len = ((*symbol & FLAG_MASK) as u16) << 8;
             let lo_bits_len = *it.next().unwrap();
             let len = (hi_bits_len + lo_bits_len as u16) as usize;
             let hi_bits_index = (*it.next().unwrap() as u16) << 8;
@@ -400,10 +515,36 @@ pub fn decode_lzw_u8(src: &[u8]) -> Vec<u8> {
 _-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-
 
     Annexe contenant quelques tests suplémentaires ainsi que des déclarations
-    pratique pour notre présentation.
+    pratique pour la présentation de ce fichier.
 
 _-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-
  ************************************************************************  */
+
+/// Public access to Original::while_equal
+pub fn while_equal(src: &[u8], from: usize, index: usize) -> u32 {
+    Original::while_equal(src, from, index)
+}
+
+/// Public access to Fast::while_equal
+pub fn while_equal_fast(src: &[u8], from: usize, index: usize) -> u32 {
+    Fast::while_equal(src, from, index)
+}
+
+/// Public access to Faster::while_equal
+pub fn while_equal_faster(src: &[u8], from: usize, index: usize) -> u32 {
+    Faster::while_equal(src, from, index)
+}
+
+/// LZSS variation of LZW algorithm with a windows size. With the optimization
+/// for OoO processors.
+pub fn encode_lzss_u8_fast(src: &[u8], windows_size: usize) -> Vec<u8> {
+    internal_encode_lzss_u8::<Fast>(src, windows_size)
+}
+
+/// LZSS variation of LZW algorithm with a windows size. With the usize optimization.
+pub fn encode_lzss_u8_faster(src: &[u8], windows_size: usize) -> Vec<u8> {
+    internal_encode_lzss_u8::<Faster>(src, windows_size)
+}
 
 /// Représentation d'une paire taille-index, nous aurions pu nous
 /// en passer et utiliser un simple tuple. Seulement ajouter cette
@@ -413,6 +554,58 @@ _-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-
 struct Pair {
     index: usize,
     len: u32,
+}
+
+struct Original;
+struct Fast;
+struct Faster;
+
+#[cfg(all(feature = "portable_simd", feature = "target_x86_64"))]
+struct X86_64;
+
+#[cfg(all(feature = "portable_simd", feature = "target_x86_64"))]
+pub fn while_equal_target_x86_64(src: &[u8], from: usize, index: usize) -> u32 {
+    X86_64::while_equal(src, from, index)
+}
+
+#[cfg(all(feature = "portable_simd", feature = "target_x86_64"))]
+impl WhileEqual for X86_64 {
+    fn while_equal(src: &[u8], from: usize, index: usize) -> u32 {
+        assert!(from < index);
+        assert!(index < src.len());
+        assert!(src.len() > I64X2_BYTES_LEN + 1);
+        assert_eq!(src[from], src[index]);
+
+        let mut s = from + 1;
+        let mut i = index + 1;
+
+        use std::arch::x86_64::_mm_cmpistrc;
+        use std::arch::x86_64::_mm_loadu_si128;
+        use std::arch::x86_64::_SIDD_CMP_EQUAL_ORDERED;
+
+        const I64X2_BYTES_LEN: usize = 16;
+        // s + I64X2_BYTES_LEN < index && i + I64X2_BYTES_LEN < src.len(): verification en
+        // premier lieu que nous n'empiétons pas sur la partie droite de la
+        // source. Puis en second lieu que nos déréferencements ce font bien sur
+        // un interval où nous avons notre source.
+        while s + I64X2_BYTES_LEN < index && i + I64X2_BYTES_LEN < src.len() {
+            let ps = unsafe { _mm_loadu_si128(src[s..].as_ptr() as *const _) };
+            let pi = unsafe { _mm_loadu_si128(src[i..].as_ptr() as *const _) };
+            if unsafe { _mm_cmpistrc::<_SIDD_CMP_EQUAL_ORDERED>(ps, pi) } != 0 {
+                break;
+            }
+            s += I64X2_BYTES_LEN;
+            i += I64X2_BYTES_LEN;
+        }
+
+        // Fix the last bytes unchecked
+        while s < index && i < src.len() && src[s] == src[i] {
+            s += 1;
+            i += 1;
+        }
+
+        (s - from) as u32
+    }
 }
 
 #[test]
@@ -443,6 +636,24 @@ fn no_windows_calgary_book1_compression_test() {
 }
 
 #[test]
+fn lzss_calgary_book1_compression_test() {
+    use std::{fs::File, io::Read};
+    let mut book1 = vec![];
+    File::open("./rsc/calgary_book1")
+        .expect("Cannot find calgary book1 ressource")
+        .read_to_end(&mut book1)
+        .expect("Unexpected fail to read calgary book1 ressource");
+    let book1 = &book1[..4000];
+    let encoded = encode_lzss_u8(book1, 1000);
+
+    // Dans ce cas précisément on s'attend déjà voir une modification
+    // de la taille.
+    assert!(encoded.len() < book1.len());
+    let decoded = decode_lzw_u8(&encoded);
+    assert_eq!(book1, decoded)
+}
+
+#[test]
 fn while_equal_functions_consistency() {
     use std::fs::File;
     use std::io::Read;
@@ -458,45 +669,95 @@ fn while_equal_functions_consistency() {
         src[2046..2054].to_vec(),
         src[3991..3999].to_vec()
     );
-    let len1 = while_equal_fast(src, 2046, 3991);
-    let len2 = while_equal(src, 2046, 3991);
+    let len1 = Fast::while_equal(src, 2046, 3991);
+    let len2 = Original::while_equal(src, 2046, 3991);
+    assert_eq!(len1, len2);
+}
+
+#[cfg(feature = "target_x86_64")]
+#[test]
+fn while_equal_functions_consistency_target_x86_64() {
+    use std::fs::File;
+    use std::io::Read;
+    let mut book1 = vec![];
+    File::open("./rsc/calgary_book1")
+        .expect("Cannot find calgary book1 ressource")
+        .read_to_end(&mut book1)
+        .expect("Unexpected fail to read calgary book1 ressource");
+
+    let src = &book1[0..4000];
+    println!(
+        "{:?}; {:?}",
+        src[2046..2054].to_vec(),
+        src[3991..3999].to_vec()
+    );
+    let len1 = Fast::while_equal(src, 2046, 3991);
+    let len2 = X86_64::while_equal(src, 2046, 3991);
     assert_eq!(len1, len2);
 }
 
 #[test]
 fn while_equal_consitency_doctest_enhanced() {
     let src = "ABCDFGHABCDEFGHI".as_bytes();
-    let len1 = while_equal_fast(src, 0, 7);
-    let len2 = while_equal(src, 0, 7);
+    let len1 = Fast::while_equal(src, 0, 7);
+    let len2 = Original::while_equal(src, 0, 7);
+    let len3 = Faster::while_equal(src, 0, 7);
+    assert_eq!(len1, 4);
     assert_eq!(len1, len2);
+    assert_eq!(len1, len3);
 
     let src = "ABCDABCDEFGHI".as_bytes();
-    let len1 = while_equal_fast(src, 0, 4);
-    let len2 = while_equal(src, 0, 4);
+    let len1 = Fast::while_equal(src, 0, 4);
+    let len2 = Original::while_equal(src, 0, 4);
+    let len3 = Faster::while_equal(src, 0, 4);
     assert_eq!(len1, len2);
+    assert_eq!(len1, len3);
 
     let src = "AA".as_bytes();
-    let len1 = while_equal_fast(src, 0, 1);
-    let len2 = while_equal(src, 0, 1);
+    let len1 = Fast::while_equal(src, 0, 1);
+    let len2 = Original::while_equal(src, 0, 1);
     assert_eq!(len1, len2);
 
     let src = "ABAB".as_bytes();
-    let len1 = while_equal_fast(src, 0, 2);
-    let len2 = while_equal(src, 0, 2);
+    let len1 = Fast::while_equal(src, 0, 2);
+    let len2 = Original::while_equal(src, 0, 2);
     assert_eq!(len1, len2);
 
     let src = "ABCABC".as_bytes();
-    let len1 = while_equal_fast(src, 0, 3);
-    let len2 = while_equal(src, 0, 3);
+    let len1 = Fast::while_equal(src, 0, 3);
+    let len2 = Original::while_equal(src, 0, 3);
     assert_eq!(len1, len2);
 
     let src = "ABCDABC".as_bytes();
-    let len1 = while_equal_fast(src, 0, 4);
-    let len2 = while_equal(src, 0, 4);
+    let len1 = Fast::while_equal(src, 0, 4);
+    let len2 = Original::while_equal(src, 0, 4);
     assert_eq!(len1, len2);
 
     let src = "ABCDABCD".as_bytes();
-    let len1 = while_equal_fast(src, 0, 4);
-    let len2 = while_equal(src, 0, 4);
+    let len1 = Fast::while_equal(src, 0, 4);
+    let len2 = Original::while_equal(src, 0, 4);
     assert_eq!(len1, len2);
+}
+
+/// Vérification de la consistence des résultats entre l'algorithme optimisé et
+/// l'original.
+#[test]
+fn lzss_optimizations_functions_consistency() {
+    use std::fs::File;
+    use std::io::Read;
+
+    let mut book1 = vec![];
+    File::open("./rsc/calgary_book1")
+        .expect("Cannot find calgary book1 ressource")
+        .read_to_end(&mut book1)
+        .expect("Unexpected fail to read calgary book1 ressource");
+
+    let src = &book1[0..4000];
+
+    let encoded1 = encode_lzw_no_windows_u8_fast(src);
+    let encoded2 = encode_lzw_no_windows_u8(src);
+    let encoded3 = encode_lzw_no_windows_u8_faster(src);
+
+    assert_eq!(encoded1.len(), encoded2.len());
+    assert_eq!(encoded1.len(), encoded3.len());
 }

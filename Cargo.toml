@@ -35,5 +35,9 @@ name = "lzss"
 harness = false
 
 [features]
-rayon = [ "dep:rayon" ]
 checks = []
+rayon = [ "dep:rayon" ]
+
+# Nightly only
+portable_simd = []
+target_x86_64 = [ "portable_simd" ]
