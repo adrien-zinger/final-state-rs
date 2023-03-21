@@ -136,6 +136,40 @@ pub fn build_decode_table(
     (nb_bits, new_state)
 }
 
+/// Encode with the t_ans algorithm. Prerequisities are an histogram (basically
+/// a table where histogram[symbole] = number of occurences in the sources).
+/// That histogram has to be normalized previously in order to have
+/// histogram.iter().sum() == 2^table_log.
+///
+/// A spread table that is a base for the algorithm state machine. A table_log
+/// to build the internal state table. And the current state that has to be >=
+/// 2^table_log. Initially, the state should be equal to 2^table_log.
+///
+/// Return the final state after compressing the source and a vector containing
+/// the compressed output.
+///
+/// ```
+/// use std::{fs::File, io::Read};
+///
+/// use final_state_rs::count::*;
+/// use final_state_rs::normalization::*;
+/// use final_state_rs::spreads::*;
+/// use final_state_rs::t_ans::*;
+///
+/// const TABLE_LOG: usize = 11;
+/// let mut book1 = vec![];
+/// File::open("./rsc/calgary_book1")
+///     .expect("Cannot find calgary book1 ressource")
+///     .read_to_end(&mut book1)
+///     .expect("Unexpected fail to read calgary book1 ressource");
+/// let mut hist = [0; 256];
+///
+/// let max_symbol = multi_bucket_count_u8(&book1, &mut hist);
+/// let hist = normalization_with_compensation_binary_heap(&hist, TABLE_LOG, max_symbol).unwrap();
+/// let spread = &fse_spread_unsorted(&hist, TABLE_LOG);
+/// let mut state = 1 << TABLE_LOG;
+/// let (book1_encoded, state) = encode_tans(&book1, &hist, spread, TABLE_LOG, &mut state);
+/// ```
 pub fn encode_tans(
     src: &[u8],
     histogram: &[usize],
