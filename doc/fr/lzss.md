@@ -7,13 +7,13 @@ Dans le cadre de l'implémentation d'une méthode de compréssion dérivée de
 LZW, nous nous interresserons particulièrement à LZSS. Ou en tout cas, dans
 ce fichier.
 
-Commençons par une implémentation facile de l'algorithme. Nous connaissons les grandes étape de cette méthode de compression. Lesquels sont:
+Commençons par une simple implémentation de l'algorithme. Nous connaissons les grandes étapes de cette méthode de compression. Lesquels sont:
 
-Pour chaque symbole à une position `x`: rechercher dans l'interval `[0, x[` la plus grande séquence commune avec la suite de symboles `s(x) + s(x+1) + s(x+2) + ... + s(x+n)`. Remplacer la suite par une paire taille-index indiquant la sous-sequence commune.
+Pour chaque symbole à la position `x`: rechercher dans l'intervalle `[0, x[` la plus grande séquence commune avec la suite de symboles `s(x) + s(x+1) + s(x+2) + ... + s(x+n)`. Remplacer la suite par une paire taille-index indiquant la sous-séquence commune.
 
-De plus, nous souhaitons que cette séquence réspecte deux critères. Premièrement, sa longueur doit être supérieur à 4, qui est le nombre d'octet minimum nécessaire pour écrire la paire taille-index substituant la sous-séquence original. Si nous échangions toutes les séquences inférieures à ce nombre, nous nous retrouverions avec un text compressé plus grand que le text original. En effet, imaginez que nous remplaçions chaque lettre déjà présente dans une phrase par 4 autre lettres, si nous récitions l'alphabet, celà ne poserai pas de problème. Mais si nous répetions une lettre quelconque, nous nous trouverions alors avec 24 symboles, additionnés à 4 autres, si nous récitons l'alphabet français, alors que 25 auraient suffis. Deuxièmement, la séquence doit avoir une taille inférieure à 2¹⁵, car nous réserverons le premier bit pour y mettre une signal de compression. Lors du décodage, si le premier octet est supérieur à 2¹⁵, nous savons que nous allons lire une paire taille-index. Ceci implique également que chaque symbole du text original est également inférieur à 2⁷.
+De plus, nous souhaitons que cette séquence respecte deux critères. Premièrement, sa longueur doit être supérieure à 4, qui est le nombre d'octets minimum nécessaire pour écrire la paire taille-index substituant la sous-séquence originale. Si nous échangions toutes les séquences inférieures à ce nombre, nous nous retrouverions avec un texte compressé plus grand que le texte original. En effet, imaginez que nous remplacions chaque lettre déjà présente dans une phrase par 4 autres lettres, si nous récitions l'alphabet, cela ne poserait pas de problème. Mais si nous répétions une lettre quelconque, nous nous trouverions alors avec 24 symboles, additionnés à 4 autres, si nous récitons l'alphabet français, alors que 25 auraient suffi. Deuxièmement, la séquence doit avoir une taille inférieure à 2¹⁵, car nous réserverons le premier bit pour y mettre un signal de compression. Lors du décodage, si le premier octet est supérieur à 2¹⁵, nous savons que nous allons lire une paire taille-index. Ceci implique également que chaque symbole du texte original est également inférieur à 2⁷.
 
-Vous remarquerez qu'un tel algorithme doit avoir une complexité quadratique. En effet, pour une entré de taille n, nous executerons pour chaque symbole un nombre d'opération égal à sa position. Comme vous pouvez le constater dans la figure ci dessous, le nombre d'opérations risque d'augmenter infiniment dans des proportions que nous ne pourrions accepter. Nous verrons comment résoudre ce problème plus tard, pour le moment nous l'ignorerons.
+Vous remarquerez qu'un tel algorithme doit avoir une complexité quadratique. En effet, pour une entrée de taille n, nous exécuterons pour chaque symbole un nombre d'opérations égal à sa position. Comme vous pouvez le constater dans la figure ci-dessous, le nombre d'opérations risque d'augmenter infiniment dans des proportions que nous ne pourrions accepter. Nous verrons comment résoudre ce problème plus tard, pour le moment nous l'ignorerons.
 
 ```
 f(2) = 1
@@ -23,9 +23,9 @@ f(5) = 4 + 3 + 2 + 1 = 9
 f(6) = 5 + 4 + 3 + 2 + 1 = 14
 ```
 
-La fonction suivante encodera une source en suivant une variation de l'algorithme lzss. Pour le moment, nous chercherons des récurrences de termes dans tout l'interval précédent l'index actuelle. Autrement dit, pour une séquence de symboles situé dans l'intervalle [i, n] je chercherai les séquences similaires dans l'intervalle [0, i - 1] de taille n, et je selectionnerai la séquence commune avec la valeur de n la plus grande.
+La fonction suivante encodera une source en suivant une variation de l'algorithme lzss. Pour le moment, nous chercherons des récurrences de termes dans tout l'intervalle précédant l'index actuel. Autrement dit, pour une séquence de symboles situés dans l'intervalle `[i, n]` je chercherai les séquences similaires dans l'intervalle `[0, i[` de taille n, et je sélectionnerai la séquence commune avec la valeur de n la plus grande.
 
-Un tel algorithme doit respecter certaines conditions pour être valide en terme de compression de données. Premièrement, nous devons être en mesure de décoder la sortie compréssée et forcement pouvoir retrouver la séquence initiale sans modification. Deuxièmement, la donnée compréssée doit être de taille inférieure ou égale à la source, ce point peut sembler évident mais tout algorithme ne respecte pas cette condition.
+Un tel algorithme doit respecter certaines conditions pour être valide en matière de compression de données. Premièrement, nous devons être en mesure de décoder la sortie compressée et forcement pouvoir retrouver la séquence initiale sans modification. Deuxièmement, la donnée compressée doit être de taille inférieure ou égale à la source, ce point peut sembler évident mais tout algorithme ne respecte pas cette condition.
 
 ```rust
 use final_state_rs::lzss::*;
@@ -44,7 +44,7 @@ assert_eq!(book1.to_vec(), decoded);
 assert!(encoded.len() <= decoded.len());
 ```
 
-Une source incompréssible, par exemple l'alphabet, devrait avoir une forme identique une fois compressée. Et puisque nous en somme à prouver que le résultat ne dépassera jamais en taille la source, prenons l'exemple précédent avec l'alphabet latin.
+Une source incompressible, par exemple l'alphabet, devrait avoir une forme identique une fois compressée. Et puisque nous en sommes à prouver que le résultat ne dépassera jamais en taille la source, prenons l'exemple précédent avec l'alphabet latin.
 
 ```rust
 use final_state_rs::lzss::*;
@@ -116,15 +116,15 @@ fn internal_encode_lzw_no_windows_u8<T: WhileEqual>(src: &[u8]) -> Vec<u8> {
 }
 ```
 
-Voici un exemple de compression de donnés sans perte avec une approche grammaticale. Nous supposons que le text original contient de multiple répétitions de séquence, chose courante dans un langage naturel. Moins, cependant, dans un fichier contenant un binaire, bien que cette assertion soit discutable.
+Voici un exemple de compression de donnés sans perte avec une approche grammaticale. Nous supposons que le texte original contient de multiples répétitions de séquence, chose courante dans un langage naturel. Moins, cependant, dans un fichier contenant un binaire, bien que cette assertion soit discutable.
 
-Nous avons ci-dessus décrit l'algorithme dans son implémentation la plus simple, chaque étape est décrite avec suffisement de précision, et nous avons démontré son fonctionnement par de multiple test. Lorsque je dis que cet implémentation fonctionne, je suis sûr, à quelques pourcents proches de 100, qu'elle fonctionne. Dans un tel context, et au vu du temps que j'ai à y consacrer, je chercherai divers moyen d'accelerer l'execution, en gardant l'implementation original intacte. Vous pourriez vous demander pourquoi j'entre ainsi dans ces détails. Le fait est que je cherche à justifier que ce qui suivra n'est pas une optimisation prématurée. À mon sens, l'accumulation des faits étant: la stabilité de l'algorithme, diverses preuves du fonctionnement de l'implémentation, la validation des auteurs c'est à dire moi même et le temps que je souhaite y consacrer; nous éloignent d'un contexte prématuré. Chaque élément listé précédemment étant indispensable à cette condition.
+Nous avons ci-dessus décrit l'algorithme dans son implémentation la plus simple, chaque étape est décrite avec suffisamment de précision, et nous avons démontré son fonctionnement par de multiples tests. Lorsque je dis que cette implémentation fonctionne, je suis sûr, à quelques pourcents proches de 100, qu'elle fonctionne. Dans un tel contexte, et au vu du temps que j'ai à y consacrer, je chercherai divers moyens d'accélérer l'exécution, en gardant l'implementation originale intacte. Vous pourriez vous demander pourquoi j'entre ainsi dans ces détails. Le fait est que je cherche à justifier que ce qui suivra n'ait pas une optimisation prématurée. À mon sens, l'accumulation des faits étant: la stabilité de l'algorithme, diverses preuves du fonctionnement de l'implémentation, la validation des auteurs c'est-à-dire moi-même est le temps que je souhaite y consacrer; nous éloignons d'un contexte prématuré. Chaque élément listé précédemment était indispensable à cette condition.
 
-Concentrons nous à présent sur les possibles améliorations en nous intéressant au hardware. Nous savons que la plupart des processeurs que nous possédons ont la faculté d'executer plusieurs lécture ou écriture simultanément, tant que ces opérations n'opèrent pas dans des régions trop proches. Nous ne nous atarderons pas sur ce fait car il a déjà été abordé dans une précédente étude.
+Concentrons-nous à présent sur les possibles améliorations en nous intéressant au hardware. Nous savons que la plupart des processeurs que nous possédons ont la faculté d'exécuter plusieurs lectures ou écritures simultanément, tant que ces opérations n'opèrent pas dans des régions trop proches. Nous ne nous a tardé pas sur ce fait car il a déjà été abordé dans une précédente étude.
 
-Les premiers éléments à optimiser sont les boucles. En effet, compter peut être réalisé de façon parrallèle par le processeur. La première fonction sur laquelle nous nous pencherons compte le nombre de carractères identique à partir de deux indexes dans une source.
+Les premiers éléments à optimiser sont les boucles. En effet, compter peut-être réalisé parallèlement par le processeur. J'entends par la que le parrallèlisme est différent du multithreadé. Nous profitons, au lieu de celà, des capacités des processeurs à faire du `out-of-order`. La fonction sur laquelle nous nous pencherons compte le nombre de caractères identique à partir de deux indexes dans une source.
 
-Pour éviter trop de duplication de code entre une version optimisée et une version originale des algorithmes, je définirai le trait suivant dont je préciserais les implémentations pour des structures dédiées uniquement à cette fonction `while_equal`.
+Pour éviter la duplication de code entre une version optimisée et une version originale de l'algorithme, je définirai le trait suivant dont je préciserais les implémentations dans des structures dédiées uniquement à la fonction `while_equal`.
 
 Des accès publiques sont définis comme suit.
 
@@ -295,9 +295,9 @@ pub fn encode_lzw_no_windows_u8_faster(src: &[u8]) -> Vec<u8> {
 
 D'autre optimisations, plus spécifiques à nos architectures peuvent être possible et je me réserve un temps pour les étudier plus tard.
 
-Nous pouvons maintenant passer à la suite de notre chapitre qui est celle de l'implémentation de lzss. Je vous pris de pardonner mon aproximation de lzw précédemment, car ce n'est pas exactement l'algorithme qui peut être décrit dans d'autres oeuvres. En effet, certaines caractéristiques tels que la comparaison des tailles de la sous séquence et de la pair index-taille, ainsi que l'écriture de cette paire avec un masque d'un bit sur le bit le plus élevé, sont déjà les différences notable que l'ont peut trouver entre lz77 et lzss. En réalité, il ne nous manque plus qu'implémenter le concepte de fenêtre glissante.
+Nous pouvons maintenant passer à la suite de notre chapitre qui est celle de l'implémentation de lzss. Je vous prie de pardonner mon approximation de lzw précédemment, car ce n'est pas exactement l'algorithme qui peut être décrit dans d'autres oeuvres. En effet, certaines caractéristiques telles que la comparaison des tailles de la sous-séquence et de du pair index-taille, ainsi que l'écriture de cette paire avec un masque d'un bit sur le bit le plus élevé, sont déjà les différences notables que l'on peut trouver entre lz77 et lzss. En réalité, il ne nous manque plus qu'implémenter le concept de fenêtre glissante.
 
-Les différents algorithmes dérivant de lzw ont en commun qu'ils cherchent à réduire le temps de calcul en diminuant la complexité temporel de son parent. Pour celà, ils usent de plusieurs technique étant soient coûteuses en mémoire, soit coûteuse en tant que résultat final. Dans le cas de lzss, c'est en approximant le résultat que nous réussissont à rendre la compléxité quadratique linéaire. L'approximation dégradant le résutat final, la sortie compressée de lzss sera nécéssairement de taille supérieure ou égale à celle de lzw.
+Les différents algorithmes dérivant de lzw ont en commun qu'ils cherchent à réduire le temps de calcul en diminuant la complexité temporelle de son parent. Pour cela, ils usent de plusieurs techniques étant soit coûteuses en mémoire, soit coûteuse en tant que résultat final. Dans le cas de lzss, c'est en approximant le résultat que nous réussissons à rendre la complexité quadratique linéaire. L'approximation dégradant le résultat final, la sortie compressée de lzss sera nécessairement de taille supérieure ou égale à celle de lzw.
 
 ```rust
 /// LZSS variation of LZW algorithm with a windows size.

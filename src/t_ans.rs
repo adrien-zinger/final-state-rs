@@ -136,18 +136,17 @@ pub fn build_decode_table(
     (nb_bits, new_state)
 }
 
-/// Encode with the t_ans algorithm. Prerequisities are an histogram (basically
-/// a table where histogram[symbole] = number of occurences in the sources).
-/// That histogram has to be normalized previously in order to have
-/// histogram.iter().sum() == 2^table_log.
+/// Encode with the t_ans algorithm. Prerequisites are a histogram (basically a
+/// table where histogram[symbole] = number of occurrences in the sources). That
+/// histogram has to be normalized previously in order to have
+/// `histogram.iter().sum() == 2^table_log`.
 ///
-/// A spread table that is a base for the algorithm state machine. A table_log
-/// to build the internal state table. And the current state that has to be >=
-/// 2^table_log. Initially, the state should be equal to 2^table_log.
+/// A spread table that is a base of the state machine. A table_log to build the
+/// internal state table. And the current state that has to be `>= 2^table_log`.
+/// Initially, the state should be equal to `2^table_log`.
 ///
 /// Return the final state after compressing the source and a vector containing
 /// the compressed output.
-///
 /// ```
 /// use std::{fs::File, io::Read};
 ///
