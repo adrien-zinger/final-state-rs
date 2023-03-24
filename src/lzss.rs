@@ -6,6 +6,8 @@
 //! License: MIT
 //! Author: Adrien Zinger <zinger.ad@gmail.com>
 
+use std::collections::HashMap;
+
 /// La fonction suivante encodera une source en suivant une variation de
 /// l'algorithme lzss. Pour le moment, nous chercherons des récurrences de
 /// termes dans tout l'interval précédent l'index actuelle. Autrement dit, pour
@@ -294,6 +296,8 @@ fn internal_encode_lzss_u8<T: WhileEqual>(src: &[u8], windows_size: usize) -> Ve
     // partie pour les indexes <= à windows_size, et la deuxième pour les
     // indexes >=. Ce découpage nous permet d'éviter les branchements de
     // vérification si windows_size < index.
+
+    // TODO: use a bitstream instead of a vec
     let mut ret = internal_encode_lzw_no_windows_u8::<T>(&src[..=windows_size]);
 
     let mut index = windows_size + 1;
@@ -335,6 +339,75 @@ fn internal_encode_lzss_u8<T: WhileEqual>(src: &[u8], windows_size: usize) -> Ve
         ret.append(&mut src[src.len() - diff..].to_vec());
     }
     ret
+}
+
+/// Internal implementation of the lzss algorithm.
+fn internal_encode_lzss_u8_dict<T: WhileEqual>(src: &[u8]) -> Vec<u8> {
+    use std::collections::hash_map::Entry::*;
+
+    // On peut découper le calcule de la sortie en 2 algorithmes. La première
+    // partie pour les indexes <= à windows_size, et la deuxième pour les
+    // indexes >=. Ce découpage nous permet d'éviter les branchements de
+    // vérification si windows_size < index.
+
+    // TODO: use a bitstream instead of a vec
+    // let mut ret = internal_encode_lzw_no_windows_u8::<T>(&src[..=windows_size]);
+
+    let mut ret = vec![];
+    let mut hmap = HashMap::<u32, Vec<usize>>::default();
+
+    let mut index = 0;
+    while index < src.len() - 4 {
+        let mut repetition = Pair::default();
+
+        // Recherche de la plus longue séquence.
+
+        // TODO: an error is hidden in that code. When I try with more
+        //       than 100k, I get a problem of consistency.
+        let key = unsafe { *(src.as_ptr().add(index) as *const u32) };
+        match hmap.entry(key) {
+            Occupied(mut entry) => {
+                let prev = entry.get_mut();
+                for s in prev.iter() {
+                    let len = T::while_equal(src, *s, index);
+                    if (5..32768).contains(&len) && repetition.len < len {
+                        repetition.len = len;
+                        repetition.index = *s;
+                    }
+                }
+                prev.push(index);
+            }
+            Vacant(e) => {
+                e.insert(vec![index]);
+            }
+        };
+        if repetition.len == 0 {
+            // Je n'ai trouvé aucune répétition,
+            // donc j'écris le symbole et j'avance de 1.
+            ret.push(src[index]);
+            index += 1;
+        } else {
+            // J'ai trouvé une répétition, j'avance de la
+            // taille de celle-ci
+
+            // Construit la paire taille-index sur 32 bits
+            const FLAG_MASK: u32 = 1 << 15;
+            let bits: u32 = ((repetition.len | FLAG_MASK) << 16) + repetition.index as u32;
+            ret.append(&mut bits.to_be_bytes().to_vec());
+            index += repetition.len as usize;
+        }
+    }
+    // Ecrit les dernier bits restants dans le cas où index est
+    // dans l'interval [len - 4; len[
+    if index < src.len() {
+        let diff = src.len() - index;
+        ret.append(&mut src[src.len() - diff..].to_vec());
+    }
+    ret
+}
+
+pub fn encode_lzss_u8_dict(src: &[u8]) -> Vec<u8> {
+    internal_encode_lzss_u8_dict::<Faster>(src)
 }
 
 /// Decode any output from encode_lzss* and encode_lzw*.
@@ -621,4 +694,30 @@ fn lzss_optimizations_functions_consistency() {
 
     assert_eq!(encoded1.len(), encoded2.len());
     assert_eq!(encoded1.len(), encoded3.len());
+
+    let src = &book1[0..800];
+
+    let encoded1 = encode_lzw_no_windows_u8_fast(src);
+    let encoded2 = encode_lzss_u8_dict(src);
+
+    assert!(encoded2.len() < 4000);
+    assert_eq!(encoded1, encoded2);
+}
+
+#[test]
+fn lzss_with_dict() {
+    use std::fs::File;
+    use std::io::Read;
+
+    let mut book1 = vec![];
+    File::open("./rsc/calgary_book1")
+        .expect("Cannot find calgary book1 ressource")
+        .read_to_end(&mut book1)
+        .expect("Unexpected fail to read calgary book1 ressource");
+
+    let src = &book1[40000..100000];
+    let encoded = encode_lzss_u8_dict(src);
+    assert!(encoded.len() < src.len());
+    println!("{} < {}", encoded.len(), src.len());
+    assert_eq!(src, decode_lzw_u8(&encoded));
 }

@@ -11,7 +11,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         .read_to_end(&mut book1)
         .expect("Unexpected fail to read calgary book1 ressource");
 
-    let book1 = &book1[0..4000];
+    let book1_extract = &book1[0..4000];
 
     let mut inputs_rand: Vec<u8> = (0..2000).map(|_| rand::random::<u8>()).collect();
     inputs_rand.append(&mut inputs_rand.clone());
@@ -36,16 +36,25 @@ fn criterion_benchmark(c: &mut Criterion) {
         b.iter(|| while_equal_target_x86_64(&inputs_rand, 0, 2000))
     });
 
-    c.bench_function("lzss simple", |b| {
-        b.iter(|| encode_lzw_no_windows_u8(book1))
+    c.bench_function("lzw simple", |b| {
+        b.iter(|| encode_lzw_no_windows_u8(book1_extract))
     });
 
-    c.bench_function("lzss OoO optimizations", |b| {
-        b.iter(|| encode_lzw_no_windows_u8_fast(book1))
+    c.bench_function("lzw OoO optimizations", |b| {
+        b.iter(|| encode_lzw_no_windows_u8_fast(book1_extract))
     });
 
     c.bench_function("lzss on usize len", |b| {
-        b.iter(|| encode_lzw_no_windows_u8_faster(book1))
+        b.iter(|| encode_lzss_u8_faster(book1_extract, 100))
+    });
+
+    c.bench_function("lzss with a dict ", |b| {
+        b.iter(|| encode_lzss_u8_dict(book1_extract))
+    });
+
+    let book1_10k = &book1[0..10000];
+    c.bench_function("lzss with a dict 10k", |b| {
+        b.iter(|| encode_lzss_u8_dict(book1_10k))
     });
 }
 
