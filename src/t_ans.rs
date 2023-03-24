@@ -7,14 +7,15 @@
 
 use tiny_bitstream::{BitDstream, BitEstream, BitReader, BitWriter};
 
-/// Preparation de la table d'encodage pour tANS.
+/// Preparation for tANS of the encoding table.
 ///
 /// # Algorithme
 /// start[s] = -Ls + somme (Ls', s'<s)
 /// next[s] = Ls
 ///
-/// --- Formule qui permet de connaitre le nombre de bits à ajouter au stream
-///     pendant l'encodage.
+/// --- Formula to know the number of bits to add to the stream while encoding.
+///     Basically log_ceil(Symbol's frequency) or log_floor(Symbol's frequency)
+///     depending of the current state.
 ///
 /// for state in L..2L {
 ///     symbol = spread[state - L]
@@ -64,6 +65,10 @@ pub fn build_encode_table(
     (table, delta_nb_bits, starts)
 }
 
+/// Encode one given symbol reguarding the current state, the encoding table,
+/// the table of bits to put in the stream...
+///
+/// Return the new state after encoding the symbol and modifying the stream.
 #[inline] // I want to be sure that will be inlined
 pub fn encode_symbol(
     delta_nb_bits: &[usize],
@@ -197,6 +202,10 @@ pub fn encode_tans(
     (estream.try_into().unwrap(), *state - (1 << table_log))
 }
 
+/// Decode any source encoded with `encode_tans` if we know the histogram, the
+/// spread table and the table_log used for it. The state should be the latest
+/// state that encode_symbol gave, which is also returned by the `encode_tans`
+/// function.
 pub fn decode_tans(
     src: Vec<u8>,
     histogram: &[usize],

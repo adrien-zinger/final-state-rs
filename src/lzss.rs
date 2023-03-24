@@ -337,8 +337,7 @@ fn internal_encode_lzss_u8<T: WhileEqual>(src: &[u8], windows_size: usize) -> Ve
     ret
 }
 
-/// Décode n'importe quel source encodée antérieurement par une fonction de ce
-/// fichier.
+/// Decode any output from encode_lzss* and encode_lzw*.
 pub fn decode_lzw_u8(src: &[u8]) -> Vec<u8> {
     let mut ret: Vec<u8> = vec![];
     let mut it = src.iter();
@@ -395,23 +394,26 @@ pub fn encode_lzss_u8_faster(src: &[u8], windows_size: usize) -> Vec<u8> {
     internal_encode_lzss_u8::<Faster>(src, windows_size)
 }
 
-/// Représentation d'une paire taille-index, nous aurions pu nous
-/// en passer et utiliser un simple tuple. Seulement ajouter cette
-/// structure augmente la clarté du code. De plus, elle n'impacte en
-/// rien les performances.
+/// Representation of a size-index pair, we could have done without it and used
+/// a simple tuple. Only adding this structure increases the clarity of the
+/// code. Moreover, it does not impact the performance.
+///
+/// That pair is written in place of a copy of an already printed sequence in
+/// the encoded vector output.
 #[derive(Default)]
 struct Pair {
+    /// Index of the latest occurence of a similar sequence in the buffer.
     index: usize,
+    /// Size of the sequence
     len: u32,
 }
 
-/*
- * The empties structures Original, Fast, Faster and X86_64 are used to dispatch statically
- * the lzss and lzw algorithm which use the while_equal functions. Since the while_equal function
- * has multiple implementation, you can choose which one to use.
- *
- * i.e.: `internal_encode_lzss_u8::<Faster>(src, windows_size)`
- */
+// The empties structures Original, Fast, Faster and X86_64 are used to dispatch
+// statically the lzss and lzw algorithm which uses the while_equal functions.
+// Since the while_equal function has multiple implementation, you can choose
+// which one to use.
+//
+// i.e.: `internal_encode_lzss_u8::<Faster>(src, windows_size)`
 
 /// Namespace for the original while_equal algorithm.
 struct Original;

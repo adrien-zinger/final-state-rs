@@ -150,7 +150,7 @@ La fonction `while_equal` prend comme arguments une source et deux indexes. Elle
 fn while_equal(src: &[u8], from: usize, index: usize) -> u32;
 ```
 
-Dans notre context présent, il est impératif que le premier indexe soit inférieur au second, et ces deux index doivent être inférieur à la taille de la source. De plus, j'ai choisi arbitrairement d'appeler cette fonction uniquement lorsque je constate que deux éléments dans la source, à la position `from` et `index`, sont égaux. Il convient donc de vérifier s'il sont bien égaux avant de poursuivre la procédure.
+Dans le contexte actuel, il est impératif que le premier indexe soit inférieur au second, et ces deux index doivent être inférieur à la taille de la source. De plus, j'ai choisi arbitrairement d'appeler cette fonction uniquement lorsque je constate que deux éléments dans la source, à la position `from` et `index`, sont égaux. Il convient donc de vérifier s'ils sont bien égaux avant de poursuivre.
 
 La fonction est triviale et je doute qu'il faille s'attarder plus longtemps dessus.
 
@@ -172,12 +172,9 @@ fn while_equal(src: &[u8], from: usize, index: usize) -> u32 {
 }
 ```
 
-Dans le code précédant, la boucle de test peut tout à fait être divisé en 4. Ce que nous allons faire, en prenant soint de vérifier la consistance entre l'implémentation triviale et rapide à l'aide d'un jeu de tests. Nous pourrons vérifier si nous obtenons oui ou non de meilleures performances par la suite.
+Dans le code précédent, la boucle de test peut tout à fait être divisée en 4. Ce que nous allons faire, en prenant soint de vérifier la consistance entre l'implémentation triviale et rapide à l'aide d'un jeu de tests. Nous pourrons vérifier si nous obtenons oui ou non de meilleures performances par la suite.
 
-
-Cette implémentation est simétrique à sa version original et optimisée pour les processeurs OoO.
-
-Pour tenter de prouver une telle simétrie, il est important de définir des tests tels que ceux présents dans la figure suivante. Cependant nous pourrions nous en convaincre en parcourant le code attentivement. Premièrement, nous avons modifié le pas de la boucle principale initiallement de 1 à 4. Chaque test de i à i + 3 sont réalisés en utilisant de nouvelles variables locales. Un processeur OoO peut ainsi procéder parrallèlement chaque test. L'execution parrallèle s'arrête au moment de l'écriture de s, car cette opération doit respecter un ordre définis par le processeur lorsqu'il est sur un seul thread. De plus, l'union peut aussi se faire lors du break, car le branchement respecte les mêmes conditions que la variable s dans ce contexte.
+Pour tenter de prouver la consistance des résultats entre ces deux fonctions, il est important de définir des tests tels que ceux présents dans la figure suivante. Cependant nous pourrions nous en convaincre en parcourant le code attentivement. Premièrement, nous avons modifié le pas de la boucle principale initialement de 1 à 4. Chaque test de i à i + 3 est réalisé en utilisant de nouvelles variables locales. Un processeur OoO peut ainsi procéder parallèlement chaque test. L'execution parallèle s'arrête au moment de l'écriture de s, car cette opération doit respecter un ordre défini par le processeur lorsqu'il est sur un seul thread. De plus, l'union peut aussi se faire lors du break, car le branchement respecte les mêmes conditions que la variable s dans ce contexte.
 
 Dans un deuxieme temps, nous comptons les derniers caractères oublié dans les intervals [s - 4, index]  [i - 4, src.len()]. Ces derniers caractère ne pouvant pas être divisé en 4. Ensuite, ce serait une erreur de tenter de diviser en 3, ou 2 ces tests, l'ajout de branchement serait trop couteux par rapport au gain.
 
