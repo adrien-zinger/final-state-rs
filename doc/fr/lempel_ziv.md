@@ -4,7 +4,7 @@
 //! Autheur: Adrien Zinger <zinger.ad@gmail.com>
 
 Dans le cadre de l'implémentation d'une méthode de compréssion dérivée de
-LZW, nous nous interresserons particulièrement à LZSS. Ou en tout cas, dans
+lz, nous nous interresserons particulièrement à LZSS. Ou en tout cas, dans
 ce fichier.
 
 Commençons par une simple implémentation de l'algorithme. Nous connaissons les grandes étapes de cette méthode de compression. Lesquels sont:
@@ -37,8 +37,8 @@ File::open("./rsc/calgary_book1")
     .read(&mut book1)
     .expect("Unexpected fail to read calgary book1 ressource");
 
-let encoded = encode_lzw_no_windows_u8(&book1);
-let decoded = decode_lzw_u8(&encoded);
+let encoded = encode_lz_no_windows_u8(&book1);
+let decoded = decode_lz_u8(&encoded);
 
 assert_eq!(book1.to_vec(), decoded);
 assert!(encoded.len() <= decoded.len());
@@ -50,22 +50,22 @@ Une source incompressible, par exemple l'alphabet, devrait avoir une forme ident
 use final_state_rs::lzss::*;
 
 let alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZA".as_bytes();
-let encoded = encode_lzw_no_windows_u8(&alphabet);
-let decoded = decode_lzw_u8(&encoded);
+let encoded = encode_lz_no_windows_u8(&alphabet);
+let decoded = decode_lz_u8(&encoded);
 assert_eq!(alphabet, encoded);
 assert_eq!(decoded, encoded);
 
-pub fn encode_lzw_no_windows_u8(src: &[u8]) -> Vec<u8> {
-    internal_encode_lzw_no_windows_u8::<Original>(src)
+pub fn encode_lz_no_windows_u8(src: &[u8]) -> Vec<u8> {
+    internal_encode_lz_no_windows_u8::<Original>(src)
 }
 ```
 
-Implémentation générique de lzw sans fenêtre. Utilisé par `encode_lzw_no_windows_u8` et `encode_lzw_no_windows_u8_fast` décrit plus loin. Élimine de la duplication de code par pur principe.
+Implémentation générique de lz sans fenêtre. Utilisé par `encode_lz_no_windows_u8` et `encode_lz_no_windows_u8_fast` décrit plus loin. Élimine de la duplication de code par pur principe.
 
-Nous reviendrons rapidement sur les raisons de cette généricité, pour le moment vous pouvez faire abstraction du template.
+Nous reviendrons sur les raisons de cette généricité, pour le moment vous pouvez faire abstraction du template.
 
 ```rust
-fn internal_encode_lzw_no_windows_u8<T: WhileEqual>(src: &[u8]) -> Vec<u8> {
+fn internal_encode_lz_no_windows_u8<T: WhileEqual>(src: &[u8]) -> Vec<u8> {
     let mut index = 4;
     let mut ret: Vec<u8> = vec![];
     ret.append(&mut src[..4].to_vec());
@@ -74,10 +74,10 @@ fn internal_encode_lzw_no_windows_u8<T: WhileEqual>(src: &[u8]) -> Vec<u8> {
         let mut s = 0;
         let mut repetition = Pair::default();
 
-        Recherche de la plus longue séquence dans l'interval
-        [s; index - 4]. Puisque nous savons qu'un charactère identique
-        en `index - 4` donnera une taille maximum de 4, nous pouvons
-        dors et déjà éviter un encodage superflue.
+        // Recherche de la plus longue séquence dans l'interval
+        // [s; index - 4]. Puisque nous savons qu'un charactère identique
+        // en `index - 4` donnera une taille maximum de 4, nous pouvons
+        // dors et déjà éviter un encodage superflue.
         while s < index - 4 {
             if src[s] == src[index] {
                 Si src[s] == src[index], nous pouvons commencer à rechercher
@@ -91,23 +91,23 @@ fn internal_encode_lzw_no_windows_u8<T: WhileEqual>(src: &[u8]) -> Vec<u8> {
             s += 1;
         }
         if repetition.len == 0 {
-            Je n'ai trouvé aucune répétition,
-            donc j'écris le symbole et j'avance de 1.
+            // Je n'ai trouvé aucune répétition,
+            // donc j'écris le symbole et j'avance de 1.
             ret.push(src[index]);
             index += 1;
         } else {
-            J'ai trouvé une répétition, j'avance de la
-            taille de celle-ci
-
-            Construit la paire taille-index sur 32 bits
-            const FLAG_MASK: u32 = 1 << 15;
+            // J'ai trouvé une répétition, j'avance de la
+            // taille de celle-ci
+            //
+            // Construit la paire taille-index sur 32 bits
+            // const FLAG_MASK: u32 = 1 << 15;
             let bits: u32 = ((repetition.len | FLAG_MASK) << 16) + repetition.index as u32;
             ret.append(&mut bits.to_be_bytes().to_vec());
             index += repetition.len as usize;
         }
     }
-    Ecrit les dernier bits restants dans le cas où index est
-    dans l'interval [len - 4; len[
+    // Ecrit les dernier bits restants dans le cas où index est
+    // dans l'interval [len - 4; len[
     if index < src.len() {
         let diff = src.len() - index;
         ret.append(&mut src[src.len() - diff..].to_vec());
@@ -163,7 +163,6 @@ fn while_equal(src: &[u8], from: usize, index: usize) -> u32 {
     let mut s = from + 1;
     let mut i = index + 1;
 
-    Loop while equals
     while s < index && i < src.len() && src[s] == src[i] {
         s += 1;
         i += 1;
@@ -187,8 +186,8 @@ fn while_equal(src: &[u8], from: usize, index: usize) -> u32 {
     let mut s = from + 1;
     let mut i = index + 1;
 
-    Split in 4 the tests, each block will be done in parrallel by an OoO
-    processor.
+    // TODO: traduire -> Split in 4 the tests, each block will be done in parrallel by an OoO
+    // processor.
     while s + 4 < index && i + 4 < src.len() {
         let mut b1 = false;
         if src[s] == src[i] {
@@ -214,7 +213,7 @@ fn while_equal(src: &[u8], from: usize, index: usize) -> u32 {
         }
     }
 
-    Fix the last bytes unchecked
+    // Fix the last bytes unchecked
     while s < index && i < src.len() && src[s] == src[i] {
         s += 1;
         i += 1;
@@ -245,7 +244,7 @@ fn while_equal(src: &[u8], from: usize, index: usize) -> u32 {
     let mut s = from + 1;
     let mut i = index + 1;
 
-    Nous récupérons le nombre d'octets pour chaque étape.
+    // Nous récupérons le nombre d'octets pour chaque étape.
     const BYTES_LEN: usize = usize::BITS as usize / 8;
 
     let mut ps = unsafe { src.as_ptr().add(s) as *const usize };
@@ -264,7 +263,7 @@ fn while_equal(src: &[u8], from: usize, index: usize) -> u32 {
         i += BYTES_LEN;
     }
 
-    Fix the last bytes unchecked
+    // Fix the last bytes unchecked
     while s < index && i < src.len() && src[s] == src[i] {
         s += 1;
         i += 1;
@@ -274,30 +273,30 @@ fn while_equal(src: &[u8], from: usize, index: usize) -> u32 {
 }
 ```
 
-Avant de passer à la suite, deffinissons des accès à nos fonction et remarquons les différences de performance. Il semble que `encode_lzw_no_windows_u8_faster` est 25% plus rapide sur ma machine.
+Avant de passer à la suite, deffinissons des accès à nos fonction et remarquons les différences de performance. Il semble que `encode_lz_no_windows_u8_faster` est 25% plus rapide sur ma machine.
 
-Do the same thing as `encode_lzw_no_windows_u8` but use `while_equal_fast` which is optimized for OoO processor.
+Do the same thing as `encode_lz_no_windows_u8` but use `while_equal_fast` which is optimized for OoO processor.
 
 ```rust
-pub fn encode_lzw_no_windows_u8_fast(src: &[u8]) -> Vec<u8> {
-    internal_encode_lzw_no_windows_u8::<Fast>(src)
+pub fn encode_lz_no_windows_u8_fast(src: &[u8]) -> Vec<u8> {
+    internal_encode_lz_no_windows_u8::<Fast>(src)
 }
 
-/// Do the same thing as `encode_lzw_no_windows_u8` but use `while_equal_faster`
+/// Do the same thing as `encode_lz_no_windows_u8` but use `while_equal_faster`
 /// which has a better optimization.
-pub fn encode_lzw_no_windows_u8_faster(src: &[u8]) -> Vec<u8> {
-    internal_encode_lzw_no_windows_u8::<Faster>(src)
+pub fn encode_lz_no_windows_u8_faster(src: &[u8]) -> Vec<u8> {
+    internal_encode_lz_no_windows_u8::<Faster>(src)
 }
 ```
 
 D'autre optimisations, plus spécifiques à nos architectures peuvent être possible et je me réserve un temps pour les étudier plus tard.
 
-Nous pouvons maintenant passer à la suite de notre chapitre qui est celle de l'implémentation de lzss. Je vous prie de pardonner mon approximation de lzw précédemment, car ce n'est pas exactement l'algorithme qui peut être décrit dans d'autres oeuvres. En effet, certaines caractéristiques telles que la comparaison des tailles de la sous-séquence et de du pair index-taille, ainsi que l'écriture de cette paire avec un masque d'un bit sur le bit le plus élevé, sont déjà les différences notables que l'on peut trouver entre lz77 et lzss. En réalité, il ne nous manque plus qu'implémenter le concept de fenêtre glissante.
+Nous pouvons maintenant passer à la suite de notre chapitre qui est celle de l'implémentation de lzss. Je vous prie de pardonner mon approximation de lz précédemment, car ce n'est pas exactement l'algorithme qui peut être décrit dans d'autres oeuvres. En effet, certaines caractéristiques telles que la comparaison des tailles de la sous-séquence et de du pair index-taille, ainsi que l'écriture de cette paire avec un masque d'un bit sur le bit le plus élevé, sont déjà les différences notables que l'on peut trouver entre lz77 et lzss. En réalité, il ne nous manque plus qu'implémenter le concept de fenêtre glissante.
 
-Les différents algorithmes dérivant de lzw ont en commun qu'ils cherchent à réduire le temps de calcul en diminuant la complexité temporelle de son parent. Pour cela, ils usent de plusieurs techniques étant soit coûteuses en mémoire, soit coûteuse en tant que résultat final. Dans le cas de lzss, c'est en approximant le résultat que nous réussissons à rendre la complexité quadratique linéaire. L'approximation dégradant le résultat final, la sortie compressée de lzss sera nécessairement de taille supérieure ou égale à celle de lzw.
+Les différents algorithmes dérivant de lz ont en commun qu'ils cherchent à réduire le temps de calcul en diminuant la complexité temporelle de son parent. Pour cela, ils usent de plusieurs techniques étant soit coûteuses en mémoire, soit coûteuse en tant que résultat final. Dans le cas de lzss, c'est en approximant le résultat que nous réussissons à rendre la complexité quadratique linéaire. L'approximation dégradant le résultat final, la sortie compressée de lzss sera nécessairement de taille supérieure ou égale à celle de lz.
 
 ```rust
-/// LZSS variation of LZW algorithm with a windows size.
+/// LZSS variation of lz algorithm with a windows size.
 pub fn encode_lzss_u8(src: &[u8], windows_size: usize) -> Vec<u8> {
     internal_encode_lzss_u8::<Original>(src, windows_size)
 }
@@ -309,7 +308,7 @@ fn internal_encode_lzss_u8<T: WhileEqual>(src: &[u8], windows_size: usize) -> Ve
     // partie pour les indexes <= à windows_size, et la deuxième pour les
     // indexes >=. Ce découpage nous permet d'éviter les branchements de
     // vérification quand windows_size < index.
-    let mut ret = internal_encode_lzw_no_windows_u8::<T>(&src[..=windows_size]);
+    let mut ret = internal_encode_lz_no_windows_u8::<T>(&src[..=windows_size]);
 
     let mut index = windows_size + 1;
     while index < src.len() - 4 {
@@ -328,15 +327,9 @@ fn internal_encode_lzss_u8<T: WhileEqual>(src: &[u8], windows_size: usize) -> Ve
             s += 1;
         }
         if repetition.len == 0 {
-            Je n'ai trouvé aucune répétition,
-            donc j'écris le symbole et j'avance de 1.
             ret.push(src[index]);
             index += 1;
         } else {
-            J'ai trouvé une répétition, j'avance de la
-            taille de celle-ci
-
-            Construit la paire taille-index sur 32 bits
             const FLAG_MASK: u32 = 1 << 15;
             let bits: u32 = ((repetition.len | FLAG_MASK) << 16) + repetition.index as u32;
             ret.append(&mut bits.to_be_bytes().to_vec());
@@ -354,7 +347,7 @@ fn internal_encode_lzss_u8<T: WhileEqual>(src: &[u8], windows_size: usize) -> Ve
 ```
 
 ```rust
-pub fn decode_lzw_u8(src: &[u8]) -> Vec<u8> {
+pub fn decode_lz_u8(src: &[u8]) -> Vec<u8> {
     let mut ret: Vec<u8> = vec![];
     let mut it = src.iter();
     const FLAG_BIT: u8 = 1 << 7;

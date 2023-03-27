@@ -1,15 +1,28 @@
-//! LZSS, while_equal and some LZW variations implementations.
+//! Lempel Ziv, while_equal and some LZ variations implementations.
 //!
 //! This file is a part of `final_state_rs`.
 //!
-//! Documentation: doc/[language]/lzss.md
-//! License: MIT
+//! Documentation: doc/[language]/lempel_ziv.md
+//! License: MIT or BSD
 //! Author: Adrien Zinger <zinger.ad@gmail.com>
+//!
+//! ---
+//!
+//! This file contains multiple variations of the lempel-ziv algorithm. Some of
+//! these algorithm may looks like lzss, lz77 or lz78 and any similarity is
+//! absolutly non-fortuit because its totally inspired of. If you want to
+//! contribute to the code or the documentation, correctly naming things would
+//! be very appreciated.
+//!
+//! There is also some performance experimentation correlated with the
+//! benchmarks. Because I talked about contributions, if you want to add
+//! something, you're welcome. The LZ algorithms are known to be slow or greedy
+//! in memory. Any amelioration, comment or new variation is correct.
 
 use std::collections::HashMap;
 
 /// La fonction suivante encodera une source en suivant une variation de
-/// l'algorithme lzss. Pour le moment, nous chercherons des récurrences de
+/// l'algorithme lempel_ziv. Pour le moment, nous chercherons des récurrences de
 /// termes dans tout l'interval précédent l'index actuelle. Autrement dit, pour
 /// une séquence de symboles situé dans l'intervalle [i, n] je chercherai les
 /// séquences similaires dans l'intervalle [0, i - 1] de taille n, et je
@@ -23,7 +36,7 @@ use std::collections::HashMap;
 /// tout algorithme ne respecte pas cette condition.
 ///
 /// ```
-/// use final_state_rs::lzss::*;
+/// use final_state_rs::lempel_ziv::*;
 /// use std::{fs::File, io::Read};
 ///
 /// let mut book1 = [0; 4000];
@@ -32,8 +45,8 @@ use std::collections::HashMap;
 ///     .read(&mut book1)
 ///     .expect("Unexpected fail to read calgary book1 ressource");
 ///
-/// let encoded = encode_lzw_no_windows_u8(&book1);
-/// let decoded = decode_lzw_u8(&encoded);
+/// let encoded = encode_lz_no_windows_u8(&book1);
+/// let decoded = decode_lz_u8(&encoded);
 ///
 /// assert_eq!(book1.to_vec(), decoded);
 /// assert!(encoded.len() <= decoded.len());
@@ -45,25 +58,25 @@ use std::collections::HashMap;
 /// avec l'alphabet latin.
 ///
 /// ```
-/// use final_state_rs::lzss::*;
+/// use final_state_rs::lempel_ziv::*;
 ///
 /// let alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZA".as_bytes();
-/// let encoded = encode_lzw_no_windows_u8(&alphabet);
-/// let decoded = decode_lzw_u8(&encoded);
+/// let encoded = encode_lz_no_windows_u8(&alphabet);
+/// let decoded = decode_lz_u8(&encoded);
 /// assert_eq!(alphabet, encoded);
 /// assert_eq!(decoded, encoded);
 /// ```
-pub fn encode_lzw_no_windows_u8(src: &[u8]) -> Vec<u8> {
-    internal_encode_lzw_no_windows_u8::<Original>(src)
+pub fn encode_lz_no_windows_u8(src: &[u8]) -> Vec<u8> {
+    internal_encode_lz_no_windows_u8::<Original>(src)
 }
 
-/// Implémentation générique de lzw sans fenêtre. Utilisé par
-/// `encode_lzw_no_windows_u8` et `encode_lzw_no_windows_u8_fast` décrit plus
+/// Implémentation générique de lz sans fenêtre. Utilisé par
+/// `encode_lz_no_windows_u8` et `encode_lz_no_windows_u8_fast` décrit plus
 /// loin. Élimine de la duplication de code par pur principe.
 //
 // Nous reviendrons rapidement sur les raisons de cette généricité, pour le
 // moment vous pouvez faire abstraction du template.
-fn internal_encode_lzw_no_windows_u8<T: WhileEqual>(src: &[u8]) -> Vec<u8> {
+fn internal_encode_lz_no_windows_u8<T: WhileEqual>(src: &[u8]) -> Vec<u8> {
     let mut index = 4;
     let mut ret: Vec<u8> = vec![];
     ret.append(&mut src[..4].to_vec());
@@ -120,7 +133,7 @@ fn internal_encode_lzw_no_windows_u8<T: WhileEqual>(src: &[u8]) -> Vec<u8> {
 /// Des accès publiques sont définis comme suit.
 ///
 /// ```
-/// use final_state_rs::lzss::*;
+/// use final_state_rs::lempel_ziv::*;
 ///
 /// let src = "ABCDFGHABCDEFGHI".as_bytes();
 /// println!("src: {:?}", src);
@@ -133,7 +146,7 @@ fn internal_encode_lzw_no_windows_u8<T: WhileEqual>(src: &[u8]) -> Vec<u8> {
 /// let len2 = while_equal(src, 0, 4);
 /// assert_eq!(len1, len2);
 /// ```
-trait WhileEqual {
+pub trait WhileEqual {
     /// La fonction `while_equal` prend comme arguments une source et deux indexes.
     /// Elle calculera le nombre de carractères identiques à partir de ces deux
     /// indexes dans la limite suivante min(index - from, src.len - index).
@@ -251,45 +264,45 @@ impl WhileEqual for Faster {
 }
 
 // Avant de passer à la suite, deffinissons des accès à nos fonction et remarquons
-// les différences de performance. Il semble que `encode_lzw_no_windows_u8_faster`
+// les différences de performance. Il semble que `encode_lz_no_windows_u8_faster`
 // est 25% plus rapide sur ma machine.
 
-/// Do the same thing as `encode_lzw_no_windows_u8` but use `while_equal_fast`
+/// Do the same thing as `encode_lz_no_windows_u8` but use `while_equal_fast`
 /// which is optimized for OoO processor.
-pub fn encode_lzw_no_windows_u8_fast(src: &[u8]) -> Vec<u8> {
-    internal_encode_lzw_no_windows_u8::<Fast>(src)
+pub fn encode_lz_no_windows_u8_fast(src: &[u8]) -> Vec<u8> {
+    internal_encode_lz_no_windows_u8::<Fast>(src)
 }
 
-/// Do the same thing as `encode_lzw_no_windows_u8` but use `while_equal_faster`
+/// Do the same thing as `encode_lz_no_windows_u8` but use `while_equal_faster`
 /// which has a better optimization.
-pub fn encode_lzw_no_windows_u8_faster(src: &[u8]) -> Vec<u8> {
-    internal_encode_lzw_no_windows_u8::<Faster>(src)
+pub fn encode_lz_no_windows_u8_faster(src: &[u8]) -> Vec<u8> {
+    internal_encode_lz_no_windows_u8::<Faster>(src)
 }
 
-/// Checks that theorically lzw is more performant to compress than its
-/// approximation lzss.
+/// Checks that theorically lz is more performant to compress than its
+/// approximation.
 #[test]
-fn compare_lzw_and_lzss() {
+fn compare_lz() {
     use std::{fs::File, io::Read};
     let mut book1 = [0; 10000];
     let _ = File::open("./rsc/calgary_book1")
         .expect("Cannot find calgary book1 ressource")
         .read(&mut book1)
         .expect("Unexpected fail to read calgary book1 ressource");
-    let encoded1 = encode_lzw_no_windows_u8_fast(&book1);
-    let encoded2 = encode_lzss_u8(&book1, 2000);
+    let encoded1 = encode_lz_no_windows_u8_fast(&book1);
+    let encoded2 = encode_lempel_ziv_u8(&book1, 2000);
     assert!(encoded1.len() <= encoded2.len());
-    // Dans ce cas précisement, lzw à de meilleures performances.
+    // Dans ce cas précisement, lz à de meilleures performances.
     assert!(encoded1.len() < encoded2.len());
 }
 
-/// LZSS variation of LZW algorithm with a windows size.
-pub fn encode_lzss_u8(src: &[u8], windows_size: usize) -> Vec<u8> {
-    internal_encode_lzss_u8::<Original>(src, windows_size)
+/// lempel_ziv variation of lz algorithm with a windows size.
+pub fn encode_lempel_ziv_u8(src: &[u8], windows_size: usize) -> Vec<u8> {
+    internal_encode_lempel_ziv_u8::<Original>(src, windows_size)
 }
 
-/// Internal implementation of the lzss algorithm.
-fn internal_encode_lzss_u8<T: WhileEqual>(src: &[u8], windows_size: usize) -> Vec<u8> {
+/// Internal implementation of the lempel_ziv algorithm.
+pub fn internal_encode_lempel_ziv_u8<T: WhileEqual>(src: &[u8], windows_size: usize) -> Vec<u8> {
     assert!(windows_size < src.len());
 
     // On peut découper le calcule de la sortie en 2 algorithmes. La première
@@ -298,7 +311,7 @@ fn internal_encode_lzss_u8<T: WhileEqual>(src: &[u8], windows_size: usize) -> Ve
     // vérification si windows_size < index.
 
     // TODO: use a bitstream instead of a vec
-    let mut ret = internal_encode_lzw_no_windows_u8::<T>(&src[..=windows_size]);
+    let mut ret = internal_encode_lz_no_windows_u8::<T>(&src[..=windows_size]);
 
     let mut index = windows_size + 1;
     while index < src.len() - 4 {
@@ -341,8 +354,8 @@ fn internal_encode_lzss_u8<T: WhileEqual>(src: &[u8], windows_size: usize) -> Ve
     ret
 }
 
-/// Internal implementation of the lzss algorithm.
-fn internal_encode_lzss_u8_dict<T: WhileEqual>(src: &[u8]) -> Vec<u8> {
+/// Internal implementation of the lempel-ziv algorithm.
+pub fn internal_encode_lz_with_hashmap_u8<T: WhileEqual>(src: &[u8]) -> Vec<u8> {
     use std::collections::hash_map::Entry::*;
 
     // On peut découper le calcule de la sortie en 2 algorithmes. La première
@@ -351,7 +364,7 @@ fn internal_encode_lzss_u8_dict<T: WhileEqual>(src: &[u8]) -> Vec<u8> {
     // vérification si windows_size < index.
 
     // TODO: use a bitstream instead of a vec
-    // let mut ret = internal_encode_lzw_no_windows_u8::<T>(&src[..=windows_size]);
+    // let mut ret = internal_encode_lz_no_windows_u8::<T>(&src[..=windows_size]);
 
     let mut ret = vec![];
     let mut hmap = HashMap::<u32, Vec<usize>>::default();
@@ -363,7 +376,7 @@ fn internal_encode_lzss_u8_dict<T: WhileEqual>(src: &[u8]) -> Vec<u8> {
         // Recherche de la plus longue séquence.
 
         // TODO: an error is hidden in that code. When I try with more
-        //       than 100k, I get a problem of consistency.
+        //       than 100k, we have got a problem.
         let key = unsafe { *(src.as_ptr().add(index) as *const u32) };
         match hmap.entry(key) {
             Occupied(mut entry) => {
@@ -394,6 +407,17 @@ fn internal_encode_lzss_u8_dict<T: WhileEqual>(src: &[u8]) -> Vec<u8> {
             const FLAG_MASK: u32 = 1 << 15;
             let bits: u32 = ((repetition.len | FLAG_MASK) << 16) + repetition.index as u32;
             ret.append(&mut bits.to_be_bytes().to_vec());
+            for i in index + 1..index + repetition.len as usize {
+                let key = unsafe { *(src.as_ptr().add(i) as *const u32) };
+                match hmap.entry(key) {
+                    Occupied(mut entry) => {
+                        entry.get_mut().push(i);
+                    }
+                    Vacant(e) => {
+                        e.insert(vec![i]);
+                    }
+                };
+            }
             index += repetition.len as usize;
         }
     }
@@ -406,12 +430,12 @@ fn internal_encode_lzss_u8_dict<T: WhileEqual>(src: &[u8]) -> Vec<u8> {
     ret
 }
 
-pub fn encode_lzss_u8_dict(src: &[u8]) -> Vec<u8> {
-    internal_encode_lzss_u8_dict::<Faster>(src)
+pub fn encode_lz_with_hashmap_u8(src: &[u8]) -> Vec<u8> {
+    internal_encode_lz_with_hashmap_u8::<Faster>(src)
 }
 
-/// Decode any output from encode_lzss* and encode_lzw*.
-pub fn decode_lzw_u8(src: &[u8]) -> Vec<u8> {
+/// Decode any output from encode_lempel_ziv* and encode_lz*.
+pub fn decode_lz_u8(src: &[u8]) -> Vec<u8> {
     let mut ret: Vec<u8> = vec![];
     let mut it = src.iter();
     const FLAG_BIT: u8 = 1 << 7;
@@ -456,15 +480,15 @@ pub fn while_equal_faster(src: &[u8], from: usize, index: usize) -> u32 {
     Faster::while_equal(src, from, index)
 }
 
-/// LZSS variation of LZW algorithm with a windows size. With the optimization
+/// lempel_ziv variation of lz algorithm with a windows size. With the optimization
 /// for OoO processors.
-pub fn encode_lzss_u8_fast(src: &[u8], windows_size: usize) -> Vec<u8> {
-    internal_encode_lzss_u8::<Fast>(src, windows_size)
+pub fn encode_lempel_ziv_u8_fast(src: &[u8], windows_size: usize) -> Vec<u8> {
+    internal_encode_lempel_ziv_u8::<Fast>(src, windows_size)
 }
 
-/// LZSS variation of LZW algorithm with a windows size. With the usize optimization.
-pub fn encode_lzss_u8_faster(src: &[u8], windows_size: usize) -> Vec<u8> {
-    internal_encode_lzss_u8::<Faster>(src, windows_size)
+/// lempel_ziv variation of lz algorithm with a windows size. With the usize optimization.
+pub fn encode_lz_u8_faster(src: &[u8], windows_size: usize) -> Vec<u8> {
+    internal_encode_lempel_ziv_u8::<Faster>(src, windows_size)
 }
 
 /// Representation of a size-index pair, we could have done without it and used
@@ -482,21 +506,21 @@ struct Pair {
 }
 
 // The empties structures Original, Fast, Faster and X86_64 are used to dispatch
-// statically the lzss and lzw algorithm which uses the while_equal functions.
+// statically the lempel_ziv and lz algorithm which uses the while_equal functions.
 // Since the while_equal function has multiple implementation, you can choose
 // which one to use.
 //
-// i.e.: `internal_encode_lzss_u8::<Faster>(src, windows_size)`
+// i.e.: `internal_encode_lempel_ziv_u8::<Faster>(src, windows_size)`
 
 /// Namespace for the original while_equal algorithm.
-struct Original;
+pub struct Original;
 /// Namespace for the fast (OoO) while_equal algorithm.
-struct Fast;
+pub struct Fast;
 /// Namespace for the faster (usize) while_equal algorithm.
-struct Faster;
+pub struct Faster;
 
 #[cfg(all(feature = "portable_simd", feature = "target_x86_64"))]
-struct X86_64;
+pub struct X86_64;
 
 #[cfg(all(feature = "portable_simd", feature = "target_x86_64"))]
 pub fn while_equal_target_x86_64(src: &[u8], from: usize, index: usize) -> u32 {
@@ -547,13 +571,21 @@ impl WhileEqual for X86_64 {
 fn no_windows_test() {
     let src = "ABCABCABCBADABCABCABCABCABCDBA";
     println!("source: {:?}", src.as_bytes());
-    let encoded = encode_lzw_no_windows_u8(src.as_bytes());
+    let encoded = encode_lz_no_windows_u8(src.as_bytes());
     println!("encoded {:?}", encoded);
     for e in encoded.iter() {
         println!("{:8b}", *e);
     }
-    let decoded = decode_lzw_u8(&encoded);
+    let decoded = decode_lz_u8(&encoded);
     assert_eq!(src.as_bytes(), decoded);
+}
+
+#[test]
+fn consistency_with_hashmap_test() {
+    let src = "ABCABCABCBADABCABCABCABCABCDBA".as_bytes();
+    let encoded1 = encode_lz_no_windows_u8(src);
+    let encoded2 = encode_lz_with_hashmap_u8(src);
+    assert_eq!(encoded1, encoded2);
 }
 
 #[test]
@@ -565,13 +597,13 @@ fn no_windows_calgary_book1_compression_test() {
         .read_to_end(&mut book1)
         .expect("Unexpected fail to read calgary book1 ressource");
     let book1 = &book1[3000..4000];
-    let encoded = encode_lzw_no_windows_u8(book1);
-    let decoded = decode_lzw_u8(&encoded);
+    let encoded = encode_lz_no_windows_u8(book1);
+    let decoded = decode_lz_u8(&encoded);
     assert_eq!(book1, decoded)
 }
 
 #[test]
-fn lzss_calgary_book1_compression_test() {
+fn lempel_ziv_calgary_book1_compression_test() {
     use std::{fs::File, io::Read};
     let mut book1 = vec![];
     File::open("./rsc/calgary_book1")
@@ -579,12 +611,12 @@ fn lzss_calgary_book1_compression_test() {
         .read_to_end(&mut book1)
         .expect("Unexpected fail to read calgary book1 ressource");
     let book1 = &book1[..4000];
-    let encoded = encode_lzss_u8(book1, 1000);
+    let encoded = encode_lempel_ziv_u8(book1, 1000);
 
     // Dans ce cas précisément on s'attend déjà voir une modification
     // de la taille.
     assert!(encoded.len() < book1.len());
-    let decoded = decode_lzw_u8(&encoded);
+    let decoded = decode_lz_u8(&encoded);
     assert_eq!(book1, decoded)
 }
 
@@ -674,9 +706,9 @@ fn while_equal_consitency_doctest_enhanced() {
     assert_eq!(len1, len2);
 }
 
-/// Check result consistency with multiple dispatch of lzw algorithm.
+/// Check result consistency with multiple dispatch of lz algorithm.
 #[test]
-fn lzss_optimizations_functions_consistency() {
+fn lempel_ziv_optimizations_functions_consistency() {
     use std::fs::File;
     use std::io::Read;
 
@@ -685,27 +717,39 @@ fn lzss_optimizations_functions_consistency() {
         .expect("Cannot find calgary book1 ressource")
         .read_to_end(&mut book1)
         .expect("Unexpected fail to read calgary book1 ressource");
-
+    /*
     let src = &book1[0..4000];
 
-    let encoded1 = encode_lzw_no_windows_u8_fast(src);
-    let encoded2 = encode_lzw_no_windows_u8(src);
-    let encoded3 = encode_lzw_no_windows_u8_faster(src);
+    let encoded1 = encode_lz_no_windows_u8_fast(src);
+    let encoded2 = encode_lz_no_windows_u8(src);
+    let encoded3 = encode_lz_no_windows_u8_faster(src);
 
     assert_eq!(encoded1.len(), encoded2.len());
     assert_eq!(encoded1.len(), encoded3.len());
 
-    let src = &book1[0..800];
+    */
+    let src = &book1[120..380];
 
-    let encoded1 = encode_lzw_no_windows_u8_fast(src);
-    let encoded2 = encode_lzss_u8_dict(src);
+    println!("len {}", src.len());
+    println!("{:?} {:?}", &src[216..221], &src[252..257]);
+    println!("{}", unsafe { *(src.as_ptr().add(216) as *const u32) });
+
+    println!("encode no windows");
+    let encoded1 = encode_lz_no_windows_u8_fast(src);
+    let decoded1 = decode_lz_u8(&encoded1);
+    assert_eq!(decoded1, src, "error consistency no windows u8 fast");
+
+    println!("encode with hashmap");
+    let encoded2 = encode_lz_with_hashmap_u8(src);
+    let decoded2 = decode_lz_u8(&encoded2);
+    assert_eq!(decoded2, src, "error consistency with hashmap");
 
     assert!(encoded2.len() < 4000);
     assert_eq!(encoded1, encoded2);
 }
 
 #[test]
-fn lzss_with_dict() {
+fn lempel_ziv_with_dict() {
     use std::fs::File;
     use std::io::Read;
 
@@ -716,8 +760,8 @@ fn lzss_with_dict() {
         .expect("Unexpected fail to read calgary book1 ressource");
 
     let src = &book1[40000..100000];
-    let encoded = encode_lzss_u8_dict(src);
+    let encoded = encode_lz_with_hashmap_u8(src);
     assert!(encoded.len() < src.len());
     println!("{} < {}", encoded.len(), src.len());
-    assert_eq!(src, decode_lzw_u8(&encoded));
+    assert_eq!(src, decode_lz_u8(&encoded));
 }

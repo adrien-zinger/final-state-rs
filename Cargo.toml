@@ -31,7 +31,7 @@ name = "spreads"
 harness = false
 
 [[bench]]
-name = "lzss"
+name = "lempel_ziv"
 harness = false
 
 [features]
