@@ -1,9 +1,11 @@
-//! Ce fichier contient une implémentation en Rust de l'algorithme tANS
-//! poussé en particulier par Jarek Duda et Yann Collet.
+//! That file contains an implementation in Rust of the tANS
+//! algorithm, initially implemented in C by Yann Collet. Thanks
+//! to him, Jarek Duda and many others.
 //!
-//! Implémentation de final-state-rs, tenter d'implémenter FSE en Rust.
-//! Author: Adrien Zinger, avec l'inspiration du travail de Jarek Duda,
-//!         Yann Collet, Charles Bloom et bien d'autres.
+//! This file is a part of final-state-rs.
+//!
+//! We are trying to implement an efficient tANS en/de-coder.
+//! Author: Adrien Zinger
 
 use tiny_bitstream::{BitDstream, BitEstream, BitReader, BitWriter};
 
@@ -31,14 +33,24 @@ pub fn build_encode_table(
     let mut total = 0i32;
     let table_size = 1 << table_log;
     for (s, c) in hist.iter().enumerate() {
-        /* On peut considérer qu'un charactère non présent dans l'histograme
-        soit à lire. Dans un contexte de streaming par exemple. Dans ce cas,
-        il faut ajouter les lignes suivantes. Un test de performance peut aussi
-        nous décider à laisser on non cette condition dans tout les cas.
+        /* We can consider that a non-present symbol in the histogram could be
+        readed. In a streaming context for exemple. If any, we need the
+        following lines. A benchmark could decide us if hiding it behing a
+        specialization trait, or if that check doesn't particulary make
+        slower the algorithm. */
+        /* French version: On peut considérer qu'un charactère non présent dans
+        l'histograme soit à lire. Dans un contexte de streaming par exemple. Dans
+        ce cas, il faut ajouter les lignes suivantes. Un test de performance peut
+        aussi nous décider à laisser on non cette condition dans tout les cas. */
+
+        /*
         if *c == 0 {
             delta_nb_bits[s] = ((table_log + 1) << 16) - table_size;
         } else */
         if *c == 1 {
+            // If the symbole appear on time only, we can already now the size
+            // of the table. ??? should I add a memoization thing here.
+
             // Si le symbole n'apparait qu'une fois, il faudra pouvoir lire un
             // nombre de bit suffisant pour avoir un delta qui fasse toute la
             // table. Cette valeure est constante :
@@ -99,12 +111,12 @@ pub fn decode_symbol(
     (ret, spread[state])
 }
 
-/// Preparation de la table de décodage tANS.
+/// Preparation of the decoding table.
 ///
-/// # Algorithme
+/// # Algorithm
 /// L=2^R
 /// R=table_log
-/// next[s] = histogram <-- nombre de prochaines apparition d'un symbole
+/// next[s] = histogram <-- number of appartions of each symbol
 /// for state in 0..L {
 ///     let symbol = spread[state]
 ///     let x = next[symbol]++
@@ -114,6 +126,14 @@ pub fn decode_symbol(
 /// }
 ///
 /// # Return
+/// The routine builds the decoding table represented by two vectors of
+/// 2^table_log length.
+///
+/// 1. Number of bits to read from the stream for each state.
+/// 2. Next starting point for the next state (that is an offset that will
+///    be added to the value readed from the stream).
+///
+/// French version:
 /// Cette fonction construit la table de décodage qui est constituée de deux
 /// vecteurs de taille 2^table_log.
 ///
@@ -185,6 +205,7 @@ pub fn encode_tans(
         *state >= (1 << table_log),
         "The state has to be in [1^table_log..2 x 1^table_log - 1]"
     );
+    // Fetch all requirements to encode the source
     // Récupère le matériel pour encoder une source
     let (table, delta_nb_bits, starts) = build_encode_table(histogram, table_log, spread);
     let mut estream = BitEstream::new();
